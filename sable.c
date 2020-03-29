@@ -109,17 +109,34 @@ void sable_draw_alea(void)
 
 static inline void compute_new_state(int y, int x)
 {
-    if (table(y, x) >= 4)
-    {
-        unsigned long int div4;
-        div4 = table(y, x) / 4;
-        table(y, x - 1) += div4;
-        table(y, x + 1) += div4;
-        table(y - 1, x) += div4;
-        table(y + 1, x) += div4;
-        table(y, x) %= 4;
-        changement = 1;
+    if (table(y, x) < 4) return;
+
+    unsigned long int div4;
+    div4 = table(y, x) / 4;
+    table(y, x - 1) += div4;
+    table(y, x + 1) += div4;
+    table(y - 1, x) += div4;
+    table(y + 1, x) += div4;
+    table(y, x) %= 4;
+    changement = 1;
+}
+
+static inline void compute_new_state_omp(int y, int x)
+{
+    if (table(y, x) >= 4) {
+        #pragma omp critical
+        if (table(y, x) >= 4) {
+            unsigned long int div4;
+            div4 = table(y, x) / 4;
+            table(y, x - 1) += div4;
+            table(y, x + 1) += div4;
+            table(y - 1, x) += div4;
+            table(y + 1, x) += div4;
+            table(y, x) %= 4;
+            changement = 1;
+        }
     }
+
 }
 
 static void do_tile_reg(int x, int y, int width, int height)
@@ -145,6 +162,21 @@ static void do_tile(int x, int y, int width, int height, int who)
         for (int j = x; j < x + width; j++)
         {
             compute_new_state(i, j);
+        }
+    monitoring_end_tile(x, y, width, height, who);
+}
+
+static void do_tile_omp(int x, int y, int width, int height, int who)
+{
+    PRINT_DEBUG('c', "tuile [%d-%d][%d-%d] traitée\n", x, x + width - 1, y,
+                y + height - 1);
+
+    monitoring_start_tile(who);
+
+    for (int i = y; i < y + height; i++)
+        for (int j = x; j < x + width; j++)
+        {
+            compute_new_state_omp(i, j);
         }
     monitoring_end_tile(x, y, width, height, who);
 }
@@ -188,7 +220,7 @@ unsigned sable_compute_tiled(unsigned nb_iter)
 }
 
 ///////////////////////////// Version omp (tiled) (not working)
-
+// FIXME: améliorer car plus lent que version seq
 unsigned sable_compute_omp(unsigned nb_iter)
 {
     for (unsigned it = 1; it <= nb_iter; it++)
@@ -199,22 +231,14 @@ unsigned sable_compute_omp(unsigned nb_iter)
         #pragma omp single
         for (int y = 0; y < DIM; y += TILE_SIZE) {
             for (int x = 0; x < DIM; x += TILE_SIZE) {
-                    if (table(y, x) >= 4) {
-                        #pragma omp task firstprivate(x, y) depend(out:table(x, y)) depend(in:table(x-1,y)) depend(in:table(x+1,y)) depend(in:table(x,y-1)) depend(in:table(x,y+1)) 
-                        do_tile(x + (x == 0), y + (y == 0),
-                                TILE_SIZE - ((x + TILE_SIZE == DIM) + (x == 0)),
-                                TILE_SIZE - ((y + TILE_SIZE == DIM) + (y == 0)),
-                                omp_get_thread_num() /* CPU id */);
-                    } else {
-                        #pragma omp task firstprivate(x, y) depend(out:table(x, y))
-                        do_tile(x + (x == 0), y + (y == 0),
-                                TILE_SIZE - ((x + TILE_SIZE == DIM) + (x == 0)),
-                                TILE_SIZE - ((y + TILE_SIZE == DIM) + (y == 0)),
-                                omp_get_thread_num() /* CPU id */);
-                    }
+                #pragma omp task firstprivate(x, y) depend(out:table(y, x)) depend(in:table(y-1,x)) depend(in:table(y+1,x)) depend(in:table(y,x-1)) depend(in:table(y,x+1)) 
+                do_tile_omp(x + (x == 0), y + (y == 0),
+                        TILE_SIZE - ((x + TILE_SIZE == DIM) + (x == 0)),
+                        TILE_SIZE - ((y + TILE_SIZE == DIM) + (y == 0)),
+                        omp_get_thread_num() /* CPU id */);
             }
-            #pragma omp taskwait
         }
+        #pragma omp taskwait
         if (changement == 0)
             return it;
     }
@@ -240,9 +264,20 @@ unsigned sable_compute_vec(unsigned nb_iter)
 #if defined(ENABLE_VECTO) && (VEC_SIZE == 8)
 #include <immintrin.h>
 
-//TODO: new
-// __m256 _mm256_cvtepi32_ps(__m256i a); from m256i -> m256
 static void compute_new_state_vec(int y, int x) {
+    /*
+    if (table(y x) >= 4) {
+        unsigned long int div4;
+        div4 = table(y, x) / 4;
+        table(y, x - 1) = div4;
+        table(y, x + 1) = div4;
+        table(y - 1, x) = div4;
+        table(x + 1, x) = div4;
+        table(y , x) %= 4;
+        chagement = 1;
+    }
+    */
+
     // création d'un vecteur contenant table(y, x)
     __m256i vecTable = _mm256_set_epi32(
         table(y, x+7),
@@ -325,25 +360,35 @@ static void compute_new_state_vec(int y, int x) {
     table(y + 1, x+6) = _mm256_extract_epi32(vecTable_XSup, 6);
     table(y + 1, x+7) = _mm256_extract_epi32(vecTable_XSup, 7);
 
-    // //FIXME: Passer en vectoriel cette partie
-    // for (int i = 0; i < VEC_SIZE; i++) {
-    //     table(y, x+i) = table(y, x) /4;
-    // }
+    //FIXME: Passer en vectoriel cette partie
+    for (int i = 0; i < VEC_SIZE; i++) {
+        if (table(y, x+i) >= 4)
+            table(y, x+i) = table(y, x) /4;
+    }
 
-    // //FIXME: Passer en vectoriel cette partie
-    // for (int i = 0; i < VEC_SIZE; i++) {
-    //     table(y, x-i) = table(y, x) /4;
-    // }
+    //FIXME: Passer en vectoriel cette partie
+    for (int i = 0; i < VEC_SIZE; i++) {
+        if (table(y, x-i) >= 4)
+            table(y, x-i) = table(y, x) /4;
+    }
 
     // FIXME: voir pour du vectoriel
-    table(y, x) %= 4;
-    table(y, x+1) %= 4;
-    table(y, x+2) %= 4;
-    table(y, x+3) %= 4;
-    table(y, x+4) %= 4;
-    table(y, x+5) %= 4;
-    table(y, x+6) %= 4;
-    table(y, x+7) %= 4;
+    if (table(y, x) >= 4)
+        table(y, x)   %= 4;
+    if (table(y, x+1) >= 4)
+        table(y, x+1) %= 4;
+    if (table(y, x+2) >= 4)
+        table(y, x+2) %= 4;
+    if (table(y, x+3) >= 4)
+        table(y, x+3) %= 4;
+    if (table(y, x+4) >= 4)
+        table(y, x+4) %= 4;
+    if (table(y, x+5) >= 4)
+        table(y, x+5) %= 4;
+    if (table(y, x+6) >= 4)
+        table(y, x+6) %= 4;
+    if (table(y, x+7) >= 4)
+        table(y, x+7) %= 4;
 
     changement = 1;
 }
