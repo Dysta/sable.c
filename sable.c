@@ -56,8 +56,10 @@ void sable_refresh_img()
                 r = 255;
             else if (g == 4)
                 r = v = b = 255;
-            else if (g > 4)
-                r = b = 255 - (240 * ((double)g) / (double)max_grains);
+            else if (g > 4) {
+                r = 90;v = 94;b = 107;
+                // r = b = 255 - (240 * ((double)g) / (double)max_grains);
+            }
 
             cur_img(i, j) = RGB(r, v, b);
             if (g > max)
@@ -238,73 +240,187 @@ unsigned sable_compute_vec(unsigned nb_iter)
 #if defined(ENABLE_VECTO) && (VEC_SIZE == 8)
 #include <immintrin.h>
 
+//TODO: new
+// __m256 _mm256_cvtepi32_ps(__m256i a); from m256i -> m256
+static void compute_new_state_vec(int x, int y) {
+    // création d'un vecteur contenant table(y, x)
+    __m256i vecTable = _mm256_set_epi32(
+        table(y, x+7),
+        table(y, x+6),
+        table(y, x+5),
+        table(y, x+4),
+        table(y, x+3),
+        table(y, x+2),
+        table(y, x+1),
+        table(y, x)
+    );
+    // création des vecteurs pour comparaisons et opérations
+    __m256i vecThree = _mm256_set1_epi32(3);
+    __m256i vecZero  = _mm256_set1_epi32(0);
+
+    // compare vecTable[x] > 3, 0xFF si vrai, 0 sinon
+    // reviens à comparer vecTable[x] >= 4
+    __m256i mask = _mm256_cmpgt_epi32(vecTable, vecThree);
+
+    // Si il y a que des 0 dans le mask, on a aucunne donnée à traîter, inutile d'aller + loin
+    if (_mm256_testz_si256(mask, mask)) return;
+
+    // création du vecteur contenant des 4 pour la division
+    __m256i vecFour = _mm256_set1_epi32(4);
+    __m256i vecOne  = _mm256_set1_epi32(1);
+
+    // on créer un vecteur qui contient table(y, x) si >= 4, 0 autrement
+    __m256 vecTableModif = _mm256_blendv_ps(
+        _mm256_cvtepi32_ps(vecZero),
+        _mm256_cvtepi32_ps(vecTable),
+        _mm256_cvtepi32_ps(mask)
+    );
+
+    // div4 = table(y, x) / 4 puis une conversion du resultat float -> int
+    __m256 divFour  = _mm256_div_ps(vecTableModif, _mm256_cvtepi32_ps(vecFour));
+    __m256i div4    = _mm256_cvtps_epi32(divFour);
+
+
+    // création des vecteurs contenant table(y - 1, x) et table(y + 1, x)
+    __m256i vecTable_XInf = _mm256_set_epi32(
+        table(y - 1, x+7),
+        table(y - 1, x+6),
+        table(y - 1, x+5),
+        table(y - 1, x+4),
+        table(y - 1, x+3),
+        table(y - 1, x+2),
+        table(y - 1, x+1),
+        table(y - 1, x)
+    );
+    __m256i vecTable_XSup = _mm256_set_epi32(
+        table(y + 1, x+7),
+        table(y + 1, x+6),
+        table(y + 1, x+5),
+        table(y + 1, x+4),
+        table(y + 1, x+3),
+        table(y + 1, x+2),
+        table(y + 1, x+1),
+        table(y + 1, x)
+    );
+
+    // table(y - 1, x) += div4
+    vecTable_XInf = _mm256_add_epi32(vecTable_XInf, div4);
+    // table(y + 1, x) += div4
+    vecTable_XSup = _mm256_add_epi32(vecTable_XSup, div4);
+
+    // FIXME: voir pour du vectoriel
+    table(y, x) %= 4;
+    table(y, x+1) %= 4;
+    table(y, x+2) %= 4;
+    table(y, x+3) %= 4;
+    table(y, x+4) %= 4;
+    table(y, x+5) %= 4;
+    table(y, x+6) %= 4;
+    table(y, x+7) %= 4;
+
+    table(y - 1, x)   = _mm256_extract_epi32(vecTable_XInf, 7);
+    table(y - 1, x+1) = _mm256_extract_epi32(vecTable_XInf, 6);
+    table(y - 1, x+2) = _mm256_extract_epi32(vecTable_XInf, 5);
+    table(y - 1, x+3) = _mm256_extract_epi32(vecTable_XInf, 4);
+    table(y - 1, x+4) = _mm256_extract_epi32(vecTable_XInf, 3);
+    table(y - 1, x+5) = _mm256_extract_epi32(vecTable_XInf, 2);
+    table(y - 1, x+6) = _mm256_extract_epi32(vecTable_XInf, 1);
+    table(y - 1, x+7) = _mm256_extract_epi32(vecTable_XInf, 0);
+
+    table(y + 1, x)   = _mm256_extract_epi32(vecTable_XSup, 7);
+    table(y + 1, x+1) = _mm256_extract_epi32(vecTable_XSup, 6);
+    table(y + 1, x+2) = _mm256_extract_epi32(vecTable_XSup, 5);
+    table(y + 1, x+3) = _mm256_extract_epi32(vecTable_XSup, 4);
+    table(y + 1, x+4) = _mm256_extract_epi32(vecTable_XSup, 3);
+    table(y + 1, x+5) = _mm256_extract_epi32(vecTable_XSup, 2);
+    table(y + 1, x+6) = _mm256_extract_epi32(vecTable_XSup, 1);
+    table(y + 1, x+7) = _mm256_extract_epi32(vecTable_XSup, 0);
+
+    changement = 1;
+}
+
+/*
 static void compute_new_state_vec (int x, int y)
 {
     // création d'un vecteur avec les tables de y jusqu'a y+7
-    __m256 vecTable = _mm256_set_ps(table(y, x),
-                                    table(y, x+1),
-                                    table(y, x+2),
-                                    table(y, x+3),
-                                    table(y, x+4),
-                                    table(y, x+5),
+    __m256 vecTable = _mm256_set_ps(table(y, x+7),
                                     table(y, x+6),
-                                    table(y, x+7)
+                                    table(y, x+5),
+                                    table(y, x+4),
+                                    table(y, x+3),
+                                    table(y, x+2),
+                                    table(y, x+1),
+                                    table(y, x)
                                     );
-     __m256 vecTable_XInf = _mm256_set_ps(table(y-1, x),
-                                         table(y-1, x+1),
-                                         table(y-1, x+2),
-                                         table(y-1, x+3),
-                                         table(y-1, x+4),
-                                         table(y-1, x+5),
-                                         table(y-1, x+6),
-                                         table(y-1, x+7)
-                                         );
-    __m256 vecTable_XSup = _mm256_set_ps(table(y+1, x),
-                                         table(y+1, x+1),
-                                         table(y+1, x+2),
-                                         table(y+1, x+3),
-                                         table(y+1, x+4),
-                                         table(y+1, x+5),
-                                         table(y+1, x+6),
-                                         table(y+1, x+7)
-                                         );
+     __m256 vecTable_XInf = _mm256_set_ps(table(y-1, x+7),
+                                        table(y-1, x+6),
+                                        table(y-1, x+5),
+                                        table(y-1, x+4),
+                                        table(y-1, x+3),
+                                        table(y-1, x+2),
+                                        table(y-1, x+1),
+                                        table(y-1, x)
+                                        );
+    __m256 vecTable_XSup = _mm256_set_ps(table(y+1, x+7),
+                                        table(y+1, x+6),
+                                        table(y+1, x+5),
+                                        table(y+1, x+4),
+                                        table(y+1, x+3),
+                                        table(y+1, x+2),
+                                        table(y+1, x+1),
+                                        table(y+1, x)
+                                        );
+    __m256 vecTableMod = _mm256_set_ps(table(y, x+7) % 4,
+                                        table(y, x+6) % 4,
+                                        table(y, x+5) % 4,
+                                        table(y, x+4) % 4,
+                                        table(y, x+3) % 4,
+                                        table(y, x+2) % 4,
+                                        table(y, x+1) % 4,
+                                        table(y, x) % 4
+                                        );
 
     // création d'un vecteur contenant que des 0,1, 4
     __m256 vecZr    = _mm256_setzero_ps();
-    __m256 vecUn    = _mm256_set1_ps(1);
-    __m256 vecFour  = _mm256_set1_ps(4);
-    __m256 vecThree = _mm256_set1_ps(3);
+    __m256 vecUn    = _mm256_set1_ps(1.0);
+    __m256 vecFour  = _mm256_set1_ps(4.0);
+    __m256 vecThree = _mm256_set1_ps(3.0);
 
     // création d'un vecteur mask qui contient FF quand vecTable[x] >= 4 et 0 sinon
+    // if (table(y,x) >= 4)
     __m256 mask = _mm256_cmp_ps(vecTable, vecFour, _CMP_GE_OS);
 
     // on sort de la fonction lorsque le masque ne contient que des zéros (aucun changement à faire)
-    if(_mm256_testz_si256(mask, mask)) return;
+    if (_mm256_testz_ps(mask, mask)) {
+        printf("zero partout en %d %d\n", x, y);
+        return;
+    }
 
     // on mélange le vector table avec un vector 0, on met dans blend vecTable[x] quand mask == 1 sinon vecZero[x]
-    __m256 blendTable = _mm256_blendv_ps(vecTable, vecZr, mask);
+    __m256 blendTable = _mm256_blendv_ps(vecZr, vecTable, mask);
     // pareil que précédement mais avec des 4 et des 1
-    __m256 blendFour  = _mm256_blendv_ps(vecFour, vecUn, mask);
+    __m256 blendFour  = _mm256_blendv_ps(vecUn, vecFour, mask);
 
     // div4 = table(y, x) / 4
     __m256 divFour = _mm256_div_ps(blendTable, blendFour);
 
     // pareil que précédement mais avec div4 et des 0
-    __m256 blendFourZ = _mm256_blendv_ps(divFour, vecZr, mask);
+    __m256 blendFourZ = _mm256_blendv_ps(vecZr, divFour, mask);
     // table(y-1, x) += div4
     vecTable_XInf = _mm256_add_ps(vecTable_XInf, blendFourZ);
     // table(y+1, x) += div4
     vecTable_XSup = _mm256_add_ps(vecTable_XSup, blendFourZ);
     // table(y, x) %= 4
-    vecTable = _mm256_and_ps(vecTable, vecThree);
+    vecTable = _mm256_blendv_ps(vecTable, vecTableMod, mask);
 
+    //FIXME: Passer en vectoriel cette partie
     for (int i = 0; i < VEC_SIZE; i++) {
         table(y, x+i) = table(y, x) /4;
         table(y, x-i) = table(y, x) /4;
     }
 
     table(y, x)   = _mm256_extract_epi32((__m256i) vecTable, 0);
-    table(y, x+1) = _mm256_extract_epi32((__m256i) vecTable, 2);
+    table(y, x+1) = _mm256_extract_epi32((__m256i) vecTable, 1);
     table(y, x+2) = _mm256_extract_epi32((__m256i) vecTable, 2);
     table(y, x+3) = _mm256_extract_epi32((__m256i) vecTable, 3);
     table(y, x+4) = _mm256_extract_epi32((__m256i) vecTable, 4);
@@ -313,7 +429,7 @@ static void compute_new_state_vec (int x, int y)
     table(y, x+7) = _mm256_extract_epi32((__m256i) vecTable, 7);
 
     table(y-1, x)   = _mm256_extract_epi32((__m256i) vecTable_XInf, 0);
-    table(y-1, x+1) = _mm256_extract_epi32((__m256i) vecTable_XInf, 2);
+    table(y-1, x+1) = _mm256_extract_epi32((__m256i) vecTable_XInf, 1);
     table(y-1, x+2) = _mm256_extract_epi32((__m256i) vecTable_XInf, 2);
     table(y-1, x+3) = _mm256_extract_epi32((__m256i) vecTable_XInf, 3);
     table(y-1, x+4) = _mm256_extract_epi32((__m256i) vecTable_XInf, 4);
@@ -322,7 +438,7 @@ static void compute_new_state_vec (int x, int y)
     table(y-1, x+7) = _mm256_extract_epi32((__m256i) vecTable_XInf, 7);
 
     table(y+1, x)   = _mm256_extract_epi32((__m256i) vecTable_XSup, 0);
-    table(y+1, x+1) = _mm256_extract_epi32((__m256i) vecTable_XSup, 2);
+    table(y+1, x+1) = _mm256_extract_epi32((__m256i) vecTable_XSup, 1);
     table(y+1, x+2) = _mm256_extract_epi32((__m256i) vecTable_XSup, 2);
     table(y+1, x+3) = _mm256_extract_epi32((__m256i) vecTable_XSup, 3);
     table(y+1, x+4) = _mm256_extract_epi32((__m256i) vecTable_XSup, 4);
@@ -394,7 +510,7 @@ static void compute_new_state_vec (int x, int y)
 //   cur_img (i, j + 6) = iteration_to_color (_mm256_extract_epi32 (iter, 6));
 //   cur_img (i, j + 7) = iteration_to_color (_mm256_extract_epi32 (iter, 7));
 }
-
+*/
 static void do_tile_vec (int x, int y, int width, int height)
 {
 
