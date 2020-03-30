@@ -413,6 +413,44 @@ unsigned sable_compute_ompfor(unsigned nb_iter)
     return 0;
 }
 
+///////////////////////////// Version ompfor_bar (tiled)
+// FIXME: améliorer car plus lent que version seq
+unsigned sable_compute_ompfor_bar(unsigned nb_iter)
+{
+    for (unsigned it = 1; it <= nb_iter; it++)
+    {
+        changement = 0;
+
+        #pragma omp parallel for collapse(1) schedule(static)
+        for (int y = 0; y < DIM; y += TILE_SIZE)
+        {
+            if (y % 2 == 0)
+                do_tile(1, y + (y == 0),
+                            DIM - 2,
+                            TILE_SIZE - ((y + TILE_SIZE == DIM) + (y == 0)),
+                            omp_get_thread_num() /* CPU id */);
+        }
+
+        #pragma omp barrier
+
+        #pragma omp parallel for collapse(1) schedule(static)
+        for (int y = 0; y < DIM; y += TILE_SIZE)
+        {
+            if (y % 2 != 0)
+                do_tile(1, y + (y == 0),
+                    DIM - 2,
+                    TILE_SIZE - ((y + TILE_SIZE == DIM) + (y == 0)),
+                    omp_get_thread_num() /* CPU id */);
+        }
+        
+
+        if (changement == 0)
+            return it;
+    }
+
+    return 0;
+}
+
 ///////////////////////////// Version vec (tiled) (not working)
 unsigned sable_compute_vec(unsigned nb_iter)
 {
