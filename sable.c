@@ -325,26 +325,26 @@ static void do_tile_omp(int x, int y, int width, int height, int who)
     for (int i = y; i < y + height; i++)
         for (int j = x; j < x + width; j++)
         {
-            if (i == y && j == x) // en haut à gauche
-                compute_new_state_omp(i, j);
-                // compute_new_state_omp_upleft(i, j);
-            else if (i == y && j == x + width - 1) // en haut à droite
-                compute_new_state_omp(i, j);
-                // compute_new_state_omp_upright(i, j);
-            else if (i == y + height - 1 && j == x) // en bas à gauche
-                compute_new_state_omp(i, j);
-                // compute_new_state_omp_dwleft(i, j);
-            else if (i == y + height - 1 && j == x + width - 1) // en bas à droite
-                compute_new_state_omp(i, j);
+            // if (i == y && j == x) // en haut à gauche
+            //     compute_new_state_omp(i, j);
+            //     // compute_new_state_omp_upleft(i, j);
+            // else if (i == y && j == x + width - 1) // en haut à droite
+            //     compute_new_state_omp(i, j);
+            //     // compute_new_state_omp_upright(i, j);
+            // else if (i == y + height - 1 && j == x) // en bas à gauche
+            //     compute_new_state_omp(i, j);
+            //     // compute_new_state_omp_dwleft(i, j);
+            // else if (i == y + height - 1 && j == x + width - 1) // en bas à droite
+            //     compute_new_state_omp(i, j);
                 // compute_new_state_omp_dwright(i, j);
-            // else if (i == y) // ligne haut d'une tuile
-            //     compute_new_state_omp_up(i, j);
-            // else if (i == y + height - 1) // en bas d'une tuile
-            //     compute_new_state_omp_down(i, j);
-            // else if (j == x) // ligne gauche
-            //     compute_new_state_omp_left(i, j);
-            // else if (j == x + width - 1) // ligne droite
-            //     compute_new_state_omp_right(i, j);
+             if (i == y) // ligne haut d'une tuile
+                compute_new_state_omp_up(i, j);
+            else if (i == y + height - 1) // en bas d'une tuile
+                compute_new_state_omp_down(i, j);
+            else if (j == x) // ligne gauche
+                compute_new_state_omp_left(i, j);
+            else if (j == x + width - 1) // ligne droite
+                compute_new_state_omp_right(i, j);
             else // au centre
                 compute_new_state(i, j);
         }
