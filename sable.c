@@ -122,16 +122,18 @@ static inline void compute_new_state_omp(int y, int x)
 {
     if (table(y, x) < 4) return;
 
-    #pragma omp critical
     if (table(y, x) >= 4)
     {
         unsigned long int div4;
         div4 = table(y, x) / 4;
         table(y, x) %= 4;
-        table(y, x - 1) += div4;
-        table(y, x + 1) += div4;
-        table(y - 1, x) += div4;
-        table(y + 1, x) += div4;
+        #pragma omp critical
+        {
+            table(y, x - 1) += div4;
+            table(y, x + 1) += div4;
+            table(y - 1, x) += div4;
+            table(y + 1, x) += div4;
+        }
         changement = 1;
     }
 }
@@ -311,6 +313,8 @@ static void do_tile(int x, int y, int width, int height, int who)
     monitoring_end_tile(x, y, width, height, who);
 }
 
+
+
 static void do_tile_omp(int x, int y, int width, int height, int who)
 {
     PRINT_DEBUG('c', "tuile [%d-%d][%d-%d] traitée\n", x, x + width - 1, y,
@@ -322,21 +326,25 @@ static void do_tile_omp(int x, int y, int width, int height, int who)
         for (int j = x; j < x + width; j++)
         {
             if (i == y && j == x) // en haut à gauche
-                compute_new_state_omp_upleft(i, j);
+                compute_new_state_omp(i, j);
+                // compute_new_state_omp_upleft(i, j);
             else if (i == y && j == x + width - 1) // en haut à droite
-                compute_new_state_omp_upright(i, j);
+                compute_new_state_omp(i, j);
+                // compute_new_state_omp_upright(i, j);
             else if (i == y + height - 1 && j == x) // en bas à gauche
-                compute_new_state_omp_dwleft(i, j);
+                compute_new_state_omp(i, j);
+                // compute_new_state_omp_dwleft(i, j);
             else if (i == y + height - 1 && j == x + width - 1) // en bas à droite
-                compute_new_state_omp_dwright(i, j);
-            else if (i == y) // ligne haut d'une tuile
-                compute_new_state_omp_up(i, j);
-            else if (i == y + height - 1) // en bas d'une tuile
-                compute_new_state_omp_down(i, j);
-            else if (j == x) // ligne gauche
-                compute_new_state_omp_left(i, j);
-            else if (j == x + width - 1) // ligne droite
-                compute_new_state_omp_right(i, j);
+                compute_new_state_omp(i, j);
+                // compute_new_state_omp_dwright(i, j);
+            // else if (i == y) // ligne haut d'une tuile
+            //     compute_new_state_omp_up(i, j);
+            // else if (i == y + height - 1) // en bas d'une tuile
+            //     compute_new_state_omp_down(i, j);
+            // else if (j == x) // ligne gauche
+            //     compute_new_state_omp_left(i, j);
+            // else if (j == x + width - 1) // ligne droite
+            //     compute_new_state_omp_right(i, j);
             else // au centre
                 compute_new_state(i, j);
         }
@@ -379,9 +387,9 @@ unsigned sable_compute_tiled(unsigned nb_iter)
     return 0;
 }
 
-///////////////////////////// Version omp (tiled) (not working)
+///////////////////////////// Version ompfor (tiled) (not working)
 // FIXME: améliorer car plus lent que version seq
-unsigned sable_compute_omp(unsigned nb_iter)
+unsigned sable_compute_ompfor(unsigned nb_iter)
 {
     for (unsigned it = 1; it <= nb_iter; it++)
     {
