@@ -426,9 +426,9 @@ unsigned sable_compute_ompfor_bar(unsigned nb_iter)
         {
             if (y % 2 == 0)
                 do_tile(1, y + (y == 0),
-                            DIM - 2,
-                            TILE_SIZE - ((y + TILE_SIZE == DIM) + (y == 0)),
-                            omp_get_thread_num() /* CPU id */);
+                    DIM - 2,
+                    TILE_SIZE - ((y + TILE_SIZE == DIM) + (y == 0)),
+                    omp_get_thread_num() /* CPU id */);
         }
 
         #pragma omp barrier
@@ -442,7 +442,6 @@ unsigned sable_compute_ompfor_bar(unsigned nb_iter)
                     TILE_SIZE - ((y + TILE_SIZE == DIM) + (y == 0)),
                     omp_get_thread_num() /* CPU id */);
         }
-        
 
         if (changement == 0)
             return it;
