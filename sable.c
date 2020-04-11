@@ -7,6 +7,7 @@
 
 static unsigned do_tile_vec(int x, int y, int width, int height);
 static long unsigned int *buffer = NULL;
+#define buffer(i, j) buffer[(i)*DIM + (j)]
 
 #else
 
@@ -25,7 +26,7 @@ static unsigned long int max_grains;
 
 #define table(i, j) TABLE[(i)*DIM + (j)]
 
-static inline long unsigned int* table_addr(int i, int j) {
+static inline long unsigned int* table_addr(const long unsigned int i, const long unsigned int j) {
     return &(TABLE[i * DIM + j]);
 }
 
@@ -120,12 +121,12 @@ static inline unsigned compute_new_state(int y, int x)
 {
     if (table(y, x) >= 4)
     {
-        unsigned long int div4 = table(y, x) / 4;
+        unsigned long int div4 = table(y, x) >> 2;
         table(y, x - 1) += div4;
         table(y, x + 1) += div4;
         table(y - 1, x) += div4;
         table(y + 1, x) += div4;
-        table(y, x) %= 4;
+        table(y, x) &= 3;
         return 1;
     }
     return 0;
@@ -206,8 +207,6 @@ unsigned sable_compute_ompfor_n(unsigned nb_iter)
             changes += do_tile(x_start, y_start, width, height, omp_get_thread_num());
         }
 
-        // #pragma omp barrier
-
         #pragma omp parallel for reduction(+:changes)
         for (int y = 1; y < max_tile_idx; y+=2)
         {
@@ -228,7 +227,7 @@ unsigned sable_compute_ompfor_n(unsigned nb_iter)
     return 0;
 }
 
-unsigned sable_compute_ompfor_pair_impair(unsigned nb_iter)
+unsigned sable_compute_ompfor(unsigned nb_iter)
 {
     for (unsigned it = 1; it <= nb_iter; it++)
     {
@@ -243,8 +242,6 @@ unsigned sable_compute_ompfor_pair_impair(unsigned nb_iter)
                             TILE_SIZE - ((y + TILE_SIZE == DIM) + (y == 0)),
                             omp_get_thread_num());
         }
-
-        // #pragma omp barrier
 
         #pragma omp parallel for reduction(+:changes)
         for (int y = 0; y < DIM; y+=TILE_SIZE)
@@ -302,7 +299,7 @@ static unsigned compute_new_state_vec(int y, int x)
     // création d'un vecteur contenant table(y, x)
     __m256i vecTable = _mm256_loadu_si256((const void*) table_addr(y, x));
     // création des vecteurs pour comparaisons et opérations
-    __m256i vecThree = _mm256_set1_epi32(3);
+    __m256i vecThree = _mm256_set_epi32(3, 3, 3, 3, 3, 3, 3, 3);
 
     // compare vecTable[x] > 3, 0xFF si vrai, 0 sinon
     // reviens à comparer vecTable[x] >= 4
@@ -316,29 +313,28 @@ static unsigned compute_new_state_vec(int y, int x)
     // soit div4[x] contient table(y, x) / 4, 0 autrement (pour ne pas changer l'addition)
     __m256i div4 = _mm256_srli_epi32(vecTable, 2);
 
-    // création des vecteurs contenant table(y - 1, x) et table(y + 1, x)
-    __m256i vecTable_XInf = _mm256_loadu_si256((const void*) table_addr(y-1,x));
-    __m256i vecTable_XSup = _mm256_loadu_si256((const void*) table_addr(y+1,x));
-    __m256i vecTable_YInf = _mm256_loadu_si256((const void*) table_addr(y,x-1));
-    __m256i vecTable_YSup = _mm256_loadu_si256((const void*) table_addr(y,x+1));
-
+    // création des vecteurs contenant table(y - 1, x)
     // table(y - 1, x) += div4
-    vecTable_XInf = _mm256_add_epi32(vecTable_XInf, div4);
-    // table(y + 1, x) += div4
-    vecTable_XSup = _mm256_add_epi32(vecTable_XSup, div4);
-    // table(y, x - 1) += div4
-    vecTable_YInf = _mm256_add_epi32(vecTable_YInf, div4);
-    // table(y, x + 1) += div4
-    vecTable_YSup = _mm256_add_epi32(vecTable_YSup, div4);
+    // puis store dans l'image à la même place
+    __m256i vecTable_XInf = _mm256_loadu_si256((const void*) table_addr(y-1,x));
+    __m256i vecTable_XInf2 = _mm256_add_epi32(vecTable_XInf, div4);
+    _mm256_storeu_si256((void*) table_addr(y-1, x), vecTable_XInf2);
 
-    _mm256_storeu_si256((__m256i*) table_addr(y-1, x), vecTable_XInf);
-    _mm256_storeu_si256((__m256i*) table_addr(y+1, x), vecTable_XSup);
-    _mm256_storeu_si256((__m256i*) table_addr(y, x-1), vecTable_YInf);
-    _mm256_storeu_si256((__m256i*) table_addr(y, x+1), vecTable_YSup);
+    __m256i vecTable_XSup = _mm256_loadu_si256((const void*) table_addr(y+1,x));
+    __m256i vecTable_XSup2 = _mm256_add_epi32(vecTable_XSup, div4);
+    _mm256_storeu_si256((void*) table_addr(y+1, x), vecTable_XSup2);
+
+    __m256i vecTable_YInf = _mm256_loadu_si256((const void*) table_addr(y,x-1));
+    __m256i vecTable_YInf2 = _mm256_add_epi32(vecTable_YInf, div4);
+    _mm256_storeu_si256((void*) table_addr(y, x-1), vecTable_YInf2);
+
+    __m256i vecTable_YSup = _mm256_loadu_si256((const void*) table_addr(y,x+1));
+    __m256i vecTable_YSup2 = _mm256_add_epi32(vecTable_YSup, div4);
+    _mm256_storeu_si256((void*) table_addr(y, x+1), vecTable_YSup2);
 
     // table(y, x) %= 4 -> &= 3
     __m256i modulus_data = _mm256_and_si256(vecTable, vecThree);
-    _mm256_storeu_si256((__m256i*) table_addr(y, x), modulus_data);
+    _mm256_storeu_si256((void*) table_addr(y, x), modulus_data);
 
     return 1;
 }
