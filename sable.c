@@ -6,8 +6,6 @@
 #if defined(ENABLE_VECTO) && (VEC_SIZE == 8)
 
 static unsigned do_tile_vec(int x, int y, int width, int height);
-static long unsigned int *buffer = NULL;
-#define buffer(i, j) buffer[(i)*DIM + (j)]
 
 #else
 
@@ -20,35 +18,26 @@ static long unsigned int *buffer = NULL;
 
 #endif
 
-static long unsigned int *TABLE = NULL;
+static uint32_t *TABLE = NULL;
 
 static unsigned long int max_grains;
 
-#define table(i, j) TABLE[(i)*DIM + (j)]
+#define table(i, j) TABLE[(i)*(DIM + 8) + (j)]
 
-static inline long unsigned int* table_addr(const long unsigned int i, const long unsigned int j) {
-    return &(TABLE[i * DIM + j]);
+static inline uint32_t* table_addr(const int i, const int j) {
+    return &(table(i, j));
 }
 
 #define RGB(r, v, b) (((r) << 24 | (v) << 16 | (b) << 8) | 255)
 
 void sable_init()
 {
-    // TABLE = calloc(DIM * DIM, sizeof(long unsigned int));
-    TABLE = aligned_alloc(32, DIM * DIM * sizeof(long unsigned int));
-
-    #if defined(ENABLE_VECTO) && (VEC_SIZE == 8)
-    buffer = _mm_malloc(DIM * DIM * sizeof(long unsigned int), 32);
-    #endif
+    TABLE = calloc((DIM + 8) * (DIM + 8), sizeof(uint32_t));
 }
 
 void sable_finalize()
 {
     free(TABLE);
-
-    #if defined(ENABLE_VECTO) && (VEC_SIZE == 8)
-    _mm_free(buffer);
-    #endif
 }
 
 ///////////////////////////// Production d'une image
@@ -296,14 +285,20 @@ static unsigned compute_new_state_vec(int y, int x)
     }
     return 0;
     */
+    void* addr_center = (void*) table_addr(y, x);
+    void* addr_up     = (void*) table_addr(y + 1, x);
+    void* addr_down   = (void*) table_addr(y - 1, x);
+    void* addr_left   = (void*) table_addr(y, x - 1);
+    void* addr_right  = (void*) table_addr(y, x + 1);
+
     // création d'un vecteur contenant table(y, x)
-    __m256i vecTable = _mm256_loadu_si256((const void*) table_addr(y, x));
+    __m256i vecTable_center = _mm256_loadu_si256(addr_center);
     // création des vecteurs pour comparaisons et opérations
     __m256i vecThree = _mm256_set_epi32(3, 3, 3, 3, 3, 3, 3, 3);
 
     // compare vecTable[x] > 3, 0xFF si vrai, 0 sinon
     // reviens à comparer vecTable[x] >= 4
-    __m256i mask = _mm256_cmpgt_epi32(vecTable, vecThree);
+    __m256i mask = _mm256_cmpgt_epi32(vecTable_center, vecThree);
 
     // Si il y a que des 0 dans le mask, on s'arrête la
     if (_mm256_testz_si256(mask, mask))
@@ -311,30 +306,30 @@ static unsigned compute_new_state_vec(int y, int x)
 
     // div4 = table(y, x) / 4
     // soit div4[x] contient table(y, x) / 4, 0 autrement (pour ne pas changer l'addition)
-    __m256i div4 = _mm256_srli_epi32(vecTable, 2);
+    __m256i div4 = _mm256_srli_epi32(vecTable_center, 2);
+
+    // table(y, x) %= 4 -> &= 3
+    __m256i modulus_data = _mm256_and_si256(vecTable_center, vecThree);
+    _mm256_storeu_si256(addr_center, modulus_data);
 
     // création des vecteurs contenant table(y - 1, x)
     // table(y - 1, x) += div4
     // puis store dans l'image à la même place
-    __m256i vecTable_XInf = _mm256_loadu_si256((const void*) table_addr(y-1,x));
-    __m256i vecTable_XInf2 = _mm256_add_epi32(vecTable_XInf, div4);
-    _mm256_storeu_si256((void*) table_addr(y-1, x), vecTable_XInf2);
+    __m256i vecTable_left = _mm256_loadu_si256(addr_left);
+    vecTable_left = _mm256_add_epi32(vecTable_left, div4);
+    _mm256_storeu_si256(addr_left, vecTable_left);
 
-    __m256i vecTable_XSup = _mm256_loadu_si256((const void*) table_addr(y+1,x));
-    __m256i vecTable_XSup2 = _mm256_add_epi32(vecTable_XSup, div4);
-    _mm256_storeu_si256((void*) table_addr(y+1, x), vecTable_XSup2);
+    __m256i vecTable_right = _mm256_loadu_si256(addr_right);
+    vecTable_right = _mm256_add_epi32(vecTable_right, div4);
+    _mm256_storeu_si256(addr_right, vecTable_right);
 
-    __m256i vecTable_YInf = _mm256_loadu_si256((const void*) table_addr(y,x-1));
-    __m256i vecTable_YInf2 = _mm256_add_epi32(vecTable_YInf, div4);
-    _mm256_storeu_si256((void*) table_addr(y, x-1), vecTable_YInf2);
+    __m256i vecTable_down = _mm256_loadu_si256(addr_down);
+    vecTable_down = _mm256_add_epi32(vecTable_down, div4);
+    _mm256_storeu_si256(addr_down, vecTable_down);
 
-    __m256i vecTable_YSup = _mm256_loadu_si256((const void*) table_addr(y,x+1));
-    __m256i vecTable_YSup2 = _mm256_add_epi32(vecTable_YSup, div4);
-    _mm256_storeu_si256((void*) table_addr(y, x+1), vecTable_YSup2);
-
-    // table(y, x) %= 4 -> &= 3
-    __m256i modulus_data = _mm256_and_si256(vecTable, vecThree);
-    _mm256_storeu_si256((void*) table_addr(y, x), modulus_data);
+    __m256i vecTable_up = _mm256_loadu_si256(addr_up);
+    vecTable_up = _mm256_add_epi32(vecTable_up, div4);
+    _mm256_storeu_si256(addr_up, vecTable_up);
 
     return 1;
 }
