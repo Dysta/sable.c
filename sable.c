@@ -2,6 +2,7 @@
 
 #include <omp.h>
 #include <stdbool.h>
+#include <assert.h>
 
 #if defined(ENABLE_VECTO) && (VEC_SIZE == 8)
 
@@ -18,13 +19,13 @@ static unsigned do_tile_vec(int x, int y, int width, int height);
 
 #endif
 
-static uint32_t *TABLE = NULL;
+static uint64_t *TABLE = NULL;
 
-static unsigned long int max_grains;
+static uint64_t max_grains;
 
-#define table(i, j) TABLE[(i)*(DIM + 8) + (j)]
+#define table(X, Y) TABLE[(X)*(DIM + 32) + (Y) + DIM - 1]
 
-static inline uint32_t* table_addr(const int i, const int j) {
+static inline uint64_t* table_addr(const int i, const int j) {
     return &(table(i, j));
 }
 
@@ -32,7 +33,9 @@ static inline uint32_t* table_addr(const int i, const int j) {
 
 void sable_init()
 {
-    TABLE = calloc((DIM + 8) * (DIM + 8), sizeof(uint32_t));
+    // TABLE = calloc((DIM + 8) * (DIM + 8), sizeof(uint32_t));
+    // trying to allign the table addr to a multiple of 32 (to use load instead of loadu)
+    TABLE = aligned_alloc(32, (DIM + 32) * (DIM + 1) * sizeof(uint64_t));
 }
 
 void sable_finalize()
@@ -43,7 +46,7 @@ void sable_finalize()
 ///////////////////////////// Production d'une image
 void sable_refresh_img()
 {
-    unsigned long int max = 0;
+    uint64_t max = 0;
     for (int i = 1; i < DIM - 1; i++)
         for (int j = 1; j < DIM - 1; j++)
         {
@@ -254,6 +257,8 @@ unsigned sable_compute_ompfor(unsigned nb_iter)
 ///////////////////////////// Version vec (tiled) (not working)
 unsigned sable_compute_vec(unsigned nb_iter)
 {
+    assert(DIM % 8 == 0);
+    
     unsigned changement = 0;
     for (unsigned it = 1; it <= nb_iter; it++)
     {
@@ -292,7 +297,7 @@ static unsigned compute_new_state_vec(int y, int x)
     void* addr_right  = (void*) table_addr(y, x + 1);
 
     // création d'un vecteur contenant table(y, x)
-    __m256i vecTable_center = _mm256_loadu_si256(addr_center);
+    __m256i vecTable_center = _mm256_load_si256(addr_center);
     // création des vecteurs pour comparaisons et opérations
     __m256i vecThree = _mm256_set_epi32(3, 3, 3, 3, 3, 3, 3, 3);
 
@@ -310,7 +315,7 @@ static unsigned compute_new_state_vec(int y, int x)
 
     // table(y, x) %= 4 -> &= 3
     __m256i modulus_data = _mm256_and_si256(vecTable_center, vecThree);
-    _mm256_storeu_si256(addr_center, modulus_data);
+    _mm256_store_si256(addr_center, modulus_data);
 
     // création des vecteurs contenant table(y - 1, x)
     // table(y - 1, x) += div4
@@ -323,13 +328,13 @@ static unsigned compute_new_state_vec(int y, int x)
     vecTable_right = _mm256_add_epi32(vecTable_right, div4);
     _mm256_storeu_si256(addr_right, vecTable_right);
 
-    __m256i vecTable_down = _mm256_loadu_si256(addr_down);
+    __m256i vecTable_down = _mm256_load_si256(addr_down);
     vecTable_down = _mm256_add_epi32(vecTable_down, div4);
-    _mm256_storeu_si256(addr_down, vecTable_down);
+    _mm256_store_si256(addr_down, vecTable_down);
 
-    __m256i vecTable_up = _mm256_loadu_si256(addr_up);
+    __m256i vecTable_up = _mm256_load_si256(addr_up);
     vecTable_up = _mm256_add_epi32(vecTable_up, div4);
-    _mm256_storeu_si256(addr_up, vecTable_up);
+    _mm256_store_si256(addr_up, vecTable_up);
 
     return 1;
 }
@@ -342,7 +347,7 @@ static unsigned do_tile_vec(int x, int y, int width, int height)
 
     unsigned changement = 0;
     for (int i = y; i < y + height; i++) {
-        for (int j = x; j < x + width; j += VEC_SIZE)
+        for (int j = x; j < x + width; j += VEC_SIZE/2)
             changement += compute_new_state_vec(i, j);
     }
     return changement;
