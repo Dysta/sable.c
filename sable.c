@@ -208,14 +208,14 @@ unsigned sable_compute_tiled(unsigned nb_iter)
 }
 
 ///////////////////////////// Version ompfor_bar (tiled)
-// FIXME: cause des bugs de segmentation
 unsigned sable_compute_ompfor(unsigned nb_iter)
 {
     for (unsigned it = 1; it <= nb_iter; it++)
     {
         unsigned changes = 0;
         const int max_tile_idx = DIM / TILE_SIZE + (DIM % TILE_SIZE > 0);
-        PRINT_DEBUG('h', "max_tile_idx = %d ; DIM = %d ; TILE_SIZE = %d\n", max_tile_idx, DIM, TILE_SIZE);
+        PRINT_DEBUG('h', "max_tile_idx = %d ; DIM = %d ; TILE_SIZE = %d ; THREADS = %d\n", max_tile_idx, DIM, TILE_SIZE, easypap_requested_number_of_threads());
+        
         #pragma omp parallel for reduction(+:changes)
         for (int y = 0; y < max_tile_idx; y+=2)
         {
