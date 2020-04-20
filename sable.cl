@@ -2,7 +2,7 @@
 
 #define table(X, Y) in[(X)*DIM + (Y)]
 
-__kernel void sample_ocl (__global unsigned *in, __global unsigned *out)
+__kernel void sable_ocl (__global unsigned *in, __global unsigned *out)
 {
     int x = get_global_id (0);
     int y = get_global_id (1);
