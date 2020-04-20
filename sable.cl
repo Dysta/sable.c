@@ -13,16 +13,16 @@ __kernel void sample_ocl (__global unsigned *in, __global unsigned *out)
         tmp &= 3;
     
     if (in[x+1 * DIM + y] > 4)
-        tmp += [x+1 * DIM + y] >> 2;
+        tmp += in[x+1 * DIM + y] >> 2;
 
     if (in[x-1 * DIM + y] > 4)
-        tmp += [x-1 * DIM + y] >> 2;
+        tmp += in[x-1 * DIM + y] >> 2;
 
     if (in[x * DIM + y+1] > 4)
-        tmp += [x * DIM + y+1] >> 2;
+        tmp += in[x * DIM + y+1] >> 2;
     
     if (in[x * DIM + y-1] > 4)
-        tmp += [x * DIM + y-1] >> 2;
+        tmp += in[x * DIM + y-1] >> 2;
     
     out[x * DIM + y] = tmp;
 }
