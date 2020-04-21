@@ -61,22 +61,38 @@ void sable_refresh_img()
     for (int i = 1; i < DIM - 1; i++)
         for (int j = 1; j < DIM - 1; j++)
         {
-            //FIXME: ne pas oublier de commenter/décommenter
-            // int g = table(i, j);
-            int g = table_vec(i, j);
+            
+            int g;
+            g = table(i, j);
+            g |= table_vec(i, j);
 
             int r, v, b;
-            r = v = b = 0;
-            if (g == 1)
-                v = 255;
-            else if (g == 2)
-                b = 255;
-            else if (g == 3)
-                r = 255;
-            else if (g == 4)
-                r = v = b = 255;
-            else if (g > 4)
-                r = b = 255 - (240 * ((double)g) / (double)max_grains);
+            r = 53;
+            v = 43;
+            b = 40;
+            if (g == 1) {
+                r = 129;
+                v = 79;
+                b = 40;
+            }
+            else if (g == 2){
+                r = 198;
+                v = 123;
+                b = 75;
+            }
+            else if (g == 3){
+                r = 245;
+                v = 205;
+                b = 162;
+            }
+            else if (g == 4) {
+                r = v = b = 253;
+            }
+            else if (g > 4){
+                r = 175;
+                v = 154;
+                b = 148;
+            }
 
             cur_img(i, j) = RGB(r, v, b);
             if (g > max)
@@ -99,39 +115,63 @@ void sable_draw(char *param)
 void sable_draw_4partout(void)
 {
     max_grains = 8;
+    const bool isVec = strcmp(variant_name, "vec") == 0 ||
+                        strcmp(variant_name, "vec_ompfor") == 0;
+
     for (int i = 1; i < DIM - 1; i++)
         for (int j = 1; j < DIM - 1; j++) {
-            table(i, j) = 4;
-            #if defined(ENABLE_VECTO) && (VEC_SIZE == 8)
-            table_vec(i, j) = 4;
-            #endif
+            if (!isVec) 
+                table(i, j) = 4;
+            else {
+                #if defined(ENABLE_VECTO) && (VEC_SIZE == 8)
+                table_vec(i, j) = 4;
+                #else
+                table(i, j) = i * j / 4;
+                #endif
+            }
         }
 }
 
 void sable_draw_DIM(void)
 {
     max_grains = DIM;
+    const bool isVec = strcmp(variant_name, "vec") == 0 ||
+                        strcmp(variant_name, "vec_ompfor") == 0;
+
     for (int i = DIM / 4; i < DIM - 1; i += DIM / 4)
         for (int j = DIM / 4; j < DIM - 1; j += DIM / 4) {
-            table(i, j) = i * j / 4;
-            #if defined(ENABLE_VECTO) && (VEC_SIZE == 8)
-            table_vec(i, j) = i * j / 4;
-            #endif
+            if (!isVec) 
+                table(i, j) = i * j / 4;
+            else {
+                #if defined(ENABLE_VECTO) && (VEC_SIZE == 8)
+                table_vec(i, j) = i * j / 4;
+                #else
+                table(i, j) = i * j / 4;
+                #endif
+            }
         }
 }
 
 void sable_draw_alea(void)
 {
     max_grains = 5000;
+    const bool isVec = strcmp(variant_name, "vec") == 0 ||
+                        strcmp(variant_name, "vec_ompfor") == 0;
+
     for (int i = 0; i<DIM>> 3; i++)
     {
         const unsigned x = 1 + random() % (DIM - 2);
         const unsigned y = 1 + random() % (DIM - 2);
         const unsigned g = 1000 + (random() % (4000));
-        table(x, y) = g;
-        #if defined(ENABLE_VECTO) && (VEC_SIZE == 8)
-        table_vec(x, y) = g;
-        #endif
+        if (!isVec) 
+            table(x, y) = g;
+        else {
+            #if defined(ENABLE_VECTO) && (VEC_SIZE == 8)
+            table_vec(x, y) = g;
+            #else
+            table(x, y) = i * j / 4;
+            #endif
+        }
     }
 }
 
@@ -311,20 +351,6 @@ unsigned sable_compute_vec(unsigned nb_iter)
 
 static unsigned compute_new_state_vec(int y, int x)
 {
-    PRINT_DEBUG('c', "compute new state en [y x]-[%d %d]\n", y, x);
-    /*
-    if (table(y, x) >= 4)
-    {
-        unsigned long int div4 = table(y, x) / 4; -> table(y, x) >> 2
-        table(y, x - 1) += div4;
-        table(y, x + 1) += div4;
-        table(y - 1, x) += div4;
-        table(y + 1, x) += div4;
-        table(y, x) %= 4; -> &= 3
-        return 1;
-    }
-    return 0;
-    */
     void* addr_center = (void*) table_addr(y, x);
     void* addr_up     = (void*) table_addr(y + 1, x);
     void* addr_down   = (void*) table_addr(y - 1, x);
