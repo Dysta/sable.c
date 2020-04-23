@@ -8,6 +8,23 @@
 static uint64_t *TABLE = NULL;
 static uint64_t max_grains;
 
+// on ajoute un offset sur le tableau pour gérer les overflow de manière caché
+// utilisé par toute les versions. Permet de compute sur les tuiles de taille normal
+// tout en ayant des adresses alignés pour la version vectoriel
+// on passe donc à un tableau qui ressemble à ceci :
+/* Ici DIM = 8
+     01234567
+ ................
+0....xxxxyyyy....
+1....xxxxyyyy....
+2....xxxxyyyy....
+3....xxxxyyyy....
+4....xxxxyyyy....
+5....xxxxyyyy....
+6....xxxxyyyy....
+7....xxxxyyyy....
+ ................
+*/
 #define LEFT_OFFSET     4
 #define RIGHT_OFFSET    4
 #define UP_OFFSET       1
@@ -286,7 +303,7 @@ static unsigned do_tile_vec2(int x, int y, int width, int height, int who)
 }
 
 ///////////////////////////// Version séquentielle (seq)
-// ./run -k sabke -v vec
+// ./run -k sable -v vec
 unsigned sable_compute_seq(unsigned nb_iter)
 {
     unsigned changes = 0;
@@ -302,7 +319,7 @@ unsigned sable_compute_seq(unsigned nb_iter)
 }
 
 ///////////////////////////// Version parallèle tuilée (ompfor)
-// ./run -k sabke -v ompfor
+// ./run -k sable -v ompfor
 unsigned sable_compute_ompfor(unsigned nb_iter)
 {
     for (unsigned it = 1; it <= nb_iter; it++)
@@ -342,7 +359,7 @@ unsigned sable_compute_ompfor(unsigned nb_iter)
 }
 
 ///////////////////////////// Version parallèle tuilée avec double balayage (ompfor2)
-// ./run -k sabke -v ompfor2
+// ./run -k sable -v ompfor2
 unsigned sable_compute_ompfor2(unsigned nb_iter)
 {
     for (unsigned it = 1; it <= nb_iter; it++)
@@ -382,7 +399,7 @@ unsigned sable_compute_ompfor2(unsigned nb_iter)
 }
 
 ///////////////////////////// Version vectorielle sequentielle (vec)
-// ./run -k sabke -v vec
+// ./run -k sable -v vec
 unsigned sable_compute_vec(unsigned nb_iter)
 {
     if (DIM % 8 != 0) {
@@ -403,7 +420,7 @@ unsigned sable_compute_vec(unsigned nb_iter)
 }
 
 ///////////////////////////// Version vectorielle sequentielle avec double balayage (vec2)
-// ./run -k sabke -v vec2
+// ./run -k sable -v vec2
 unsigned sable_compute_vec2(unsigned nb_iter)
 {
     if (DIM % 8 != 0) {
@@ -424,7 +441,7 @@ unsigned sable_compute_vec2(unsigned nb_iter)
 }
 
 ///////////////////////////// Version vectorielle parallèle (vec_ompfor)
-// ./run -k sabke -v vec_ompfor
+// ./run -k sable -v vec_ompfor
 unsigned sable_compute_vec_ompfor(unsigned nb_iter)
 {
     if (DIM % 8 != 0) {
@@ -468,7 +485,7 @@ unsigned sable_compute_vec_ompfor(unsigned nb_iter)
 }
 
 ///////////////////////////// Version vectorielle parallèle avec double balayage (vec_ompfor2)
-// ./run -k sabke -v vec_ompfor2
+// ./run -k sable -v vec_ompfor2
 unsigned sable_compute_vec_ompfor2(unsigned nb_iter)
 {
     if (DIM % 8 != 0) {
