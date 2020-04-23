@@ -6,42 +6,26 @@
 #include <immintrin.h>
 
 static uint64_t *TABLE = NULL;
-static uint64_t *TABLE_vec = NULL;
-
 static uint64_t max_grains;
 
-#define table(X, Y) TABLE[(X) * DIM + (Y)]
-
-#define table_vec(X, Y) TABLE_vec[(X)*(DIM + 32) + (Y) + (DIM - 1)]
+// #define table_vec(X, Y) TABLE_vec[(X)*(DIM + 32) + (Y) + DIM - 1]
+#define table(X, Y) TABLE[(DIM + 8) * ((X) + 1) + (4 + (Y))]
 static inline uint64_t* table_addr(const int i, const int j) {
-    return &(table_vec(i, j));
+    return &(table(i, j));
 }
-
-// pour dire si on utilise une variante vectoriel ou non
-// utile pour initialiser que les choses qui concerne le vectorielle
-static bool isVec;
 
 #define RGB(r, v, b) (((r) << 24 | (v) << 16 | (b) << 8) | 255)
 
 void sable_init()
 {
-    // si variant_name contient vec
-    isVec = strstr(variant_name, "vec") != NULL;
-    
-    if (!isVec)
-        TABLE = malloc(DIM * DIM * sizeof(uint64_t));
-    else {
-        // on fait un alloc aligné sur 32 bit pour pouvoir utiliser load au lieu de loadu pour haut et bas
-        TABLE_vec = aligned_alloc(32, (DIM + 32) * (DIM + 1) * sizeof(uint64_t));
-    }
+    // on fait un alloc aligné sur 32 bit pour pouvoir utiliser load au lieu de loadu pour haut et bas
+    TABLE = aligned_alloc(32, (DIM + 8) * (DIM + 2) * sizeof(uint64_t));
+    memset(TABLE, 0, (DIM + 8) * (DIM + 2) * sizeof(uint64_t));
 }
 
 void sable_finalize()
 {
-    if (!isVec)
-        free(TABLE);
-    else
-        free(TABLE_vec);
+    free(TABLE);
 }
 
 ///////////////////////////// Production d'une image
@@ -52,7 +36,7 @@ void sable_refresh_img()
         for (int j = 1; j < DIM - 1; j++)
         {
             
-            int g = (isVec) ? table_vec(i, j) : table(i, j);
+            int g = table(i, j);
 
             int r, v, b;
             r = 53;
@@ -104,12 +88,8 @@ void sable_draw_4partout(void)
     max_grains = 8;
 
     for (int i = 1; i < DIM - 1; i++)
-        for (int j = 1; j < DIM - 1; j++) {
-            if (!isVec) 
-                table(i, j) = 4;
-            else 
-                table_vec(i, j) = 4;
-        }
+        for (int j = 1; j < DIM - 1; j++) 
+            table(i, j) = 4;
 }
 
 void sable_draw_DIM(void)
@@ -117,12 +97,8 @@ void sable_draw_DIM(void)
     max_grains = DIM;
 
     for (int i = DIM / 4; i < DIM - 1; i += DIM / 4)
-        for (int j = DIM / 4; j < DIM - 1; j += DIM / 4) {
-            if (!isVec)
-                table(i, j) = i * j / 4;
-            else
-                table_vec(i, j) = i * j / 4;
-        }
+        for (int j = DIM / 4; j < DIM - 1; j += DIM / 4)
+            table(i, j) = i * j / 4;
 }
 
 void sable_draw_alea(void)
@@ -134,10 +110,7 @@ void sable_draw_alea(void)
         const unsigned x = 1 + random() % (DIM - 2);
         const unsigned y = 1 + random() % (DIM - 2);
         const unsigned g = 1000 + (random() % (4000));
-        if (!isVec) 
-            table(x, y) = g;
-        else
-            table_vec(x, y) = g;
+        table(x, y) = g;
     }
 }
 
@@ -208,7 +181,6 @@ static unsigned compute_new_state_vec(int y, int x)
 
     return 1;
 }
-
 
 static unsigned do_tile(int x, int y, int width, int height, int who)
 {
@@ -291,7 +263,7 @@ unsigned sable_compute_seq(unsigned nb_iter)
     for (unsigned it = 1; it <= nb_iter; it++)
     {
         // On traite toute l'image en un coup (oui, c'est une grosse tuile)
-        changement += do_tile(1, 1, DIM - 2, DIM - 2, 0);
+        changement += do_tile(0, 0, DIM, DIM, 0);
         if (changement == 0)
             return it;
         changement = 0;
@@ -334,10 +306,10 @@ unsigned sable_compute_ompfor(unsigned nb_iter)
         #pragma omp parallel for reduction(+:changes) schedule(runtime)
         for (int y = 0; y < max_tile_idx; y+=2)
         {
-            const int x_start   = 1;
-            const int y_start   = y * TILE_SIZE + (y == 0);
-            const int width     = DIM - 2;
-            const int height = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE - (y == max_tile_idx - 1);
+            const int x_start   = 0;
+            const int y_start   = y * TILE_SIZE;
+            const int width     = DIM;
+            const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
             
             diff = do_tile(x_start, y_start, width, height, omp_get_thread_num());
             changes += diff;
@@ -353,10 +325,10 @@ unsigned sable_compute_ompfor(unsigned nb_iter)
         #pragma omp parallel for reduction(+:changes) schedule(runtime)
         for (int y = 1; y < max_tile_idx; y+=2)
         {
-            const int x_start   = 1;
+            const int x_start   = 0;
             const int y_start   = y * TILE_SIZE;
-            const int width     = DIM - 2;
-            const int height = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE - (y == max_tile_idx - 1);
+            const int width     = DIM;
+            const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
             
             diff = do_tile(x_start, y_start, width, height, omp_get_thread_num());
             changes += diff;
@@ -391,7 +363,7 @@ unsigned sable_compute_vec(unsigned nb_iter)
     for (unsigned it = 1; it <= nb_iter; it++)
     {
         // On traite toute l'image en un coup (oui, c'est une grosse tuile)
-        changement += do_tile_vec(1, 1, DIM - 2, DIM - 2, 0);
+        changement += do_tile_vec(0, 0, DIM, DIM, 0);
         if (changement == 0)
             return it;
         changement = 0;
@@ -412,7 +384,7 @@ unsigned sable_compute_vec2(unsigned nb_iter)
     for (unsigned it = 1; it <= nb_iter; it++)
     {
         // On traite toute l'image en un coup (oui, c'est une grosse tuile)
-        changement += do_tile_vec2(1, 1, DIM - 2, DIM - 2, 0);
+        changement += do_tile_vec2(0, 0, DIM, DIM, 0);
         if (changement == 0)
             return it;
         changement = 0;
@@ -437,10 +409,10 @@ unsigned sable_compute_vec_ompfor(unsigned nb_iter)
         #pragma omp parallel for reduction(+:changes) schedule(runtime)
         for (int y = 0; y < max_tile_idx; y+=2)
         {
-            const int x_start   = 1;
-            const int y_start   = y * TILE_SIZE + (y == 0);
-            const int width     = DIM - 2;
-            const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE - (y == max_tile_idx - 1);
+            const int x_start   = 0;
+            const int y_start   = y * TILE_SIZE;
+            const int width     = DIM;
+            const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
             
             changes += do_tile_vec(x_start, y_start, width, height, omp_get_thread_num());
         }
@@ -448,10 +420,10 @@ unsigned sable_compute_vec_ompfor(unsigned nb_iter)
         #pragma omp parallel for reduction(+:changes) schedule(runtime)
         for (int y = 1; y < max_tile_idx; y+=2)
         {
-            const int x_start   = 1;
+            const int x_start   = 0;
             const int y_start   = y * TILE_SIZE;
-            const int width     = DIM - 2;
-            const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE - (y == max_tile_idx - 1);
+            const int width     = DIM;
+            const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
             
             changes += do_tile_vec(x_start, y_start, width, height, omp_get_thread_num());
         }
@@ -481,10 +453,10 @@ unsigned sable_compute_vec_ompfor2(unsigned nb_iter)
         #pragma omp parallel for reduction(+:changes) schedule(runtime)
         for (int y = 0; y < max_tile_idx; y+=2)
         {
-            const int x_start   = 1;
-            const int y_start   = y * TILE_SIZE + (y == 0);
-            const int width     = DIM - 2;
-            const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE - (y == max_tile_idx - 1);
+            const int x_start   = 0;
+            const int y_start   = y * TILE_SIZE;
+            const int width     = DIM;
+            const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
             
             changes += do_tile_vec2(x_start, y_start, width, height, omp_get_thread_num());
         }
@@ -492,10 +464,10 @@ unsigned sable_compute_vec_ompfor2(unsigned nb_iter)
         #pragma omp parallel for reduction(+:changes) schedule(runtime)
         for (int y = 1; y < max_tile_idx; y+=2)
         {
-            const int x_start   = 1;
+            const int x_start   = 0;
             const int y_start   = y * TILE_SIZE;
-            const int width     = DIM - 2;
-            const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE - (y == max_tile_idx - 1);
+            const int width     = DIM;
+            const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
             
             changes += do_tile_vec2(x_start, y_start, width, height, omp_get_thread_num());
         }

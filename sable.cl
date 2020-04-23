@@ -16,6 +16,8 @@ __kernel void sable_ocl (__global unsigned *in, __global unsigned *out)
     tmp += in[x-1 * DIM + y] >> 2;
     tmp += in[x * DIM + y+1] >> 2;
     tmp += in[x * DIM + y-1] >> 2;
-    
+
+    barrier (CLK_LOCAL_MEM_FENCE);
+
     out[x * DIM + y] = tmp;
 }
