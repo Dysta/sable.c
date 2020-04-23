@@ -222,27 +222,20 @@ static unsigned do_tile2(int x, int y, int width, int height, int who)
 {
     PRINT_DEBUG('c', "tuile [%d-%d][%d-%d] traitée\n", x, x + width - 1, y, y + height - 1);
 
-    unsigned changes = 0, diff;
+    unsigned changes = 0;
     monitoring_start_tile(who);
     for (int i = y; i < y + height; i++) {
         for (int j = x; j < x + width; j++) {
-            diff = compute_new_state(i, j);
-            changes += diff;
-
-            if (diff == 0) continue;
-
-            diff = compute_new_state(i, j);
-            changes += diff;
+            changes += compute_new_state(i, j);
         }
+    }
 
+    // si aucun changement, pas besoin d'un second balayage
+    if (changes == 0) return 0;
+
+    for (int i = y; i < y + height; i++) {
         for (int j = x; j < x + width; j++) {
-            diff = compute_new_state(i, j);
-            changes += diff;
-
-            if (diff == 0) continue;
-
-            diff = compute_new_state(i, j);
-            changes += diff;
+            changes += compute_new_state(i, j);
         }
     }
     monitoring_end_tile(x, y, width, height, who);
@@ -283,18 +276,7 @@ static unsigned do_tile_vec2(int x, int y, int width, int height, int who)
 
             if (diff == 0) continue;
 
-            diff = compute_new_state_vec(i, j);
-            changes += diff;
-        }
-
-        for (int j = x + width - 1; j <= x; j -= VEC_SIZE/2) {
-            diff = compute_new_state_vec(i, j);
-            changes += diff;
-
-            if (diff == 0) continue;
-
-            diff = compute_new_state_vec(i, j);
-            changes += diff;
+            changes += compute_new_state_vec(i, j);
         }
     }
     monitoring_end_tile(x, y, width, height, who);
@@ -318,15 +300,15 @@ unsigned sable_compute_seq(unsigned nb_iter)
     return 0;
 }
 
-///////////////////////////// Version parallèle tuilée (ompfor)
+///////////////////////////// Version parallèle tuilée en bande (ompfor)
 // ./run -k sable -v ompfor
 unsigned sable_compute_ompfor(unsigned nb_iter)
 {
+    unsigned changes = 0;
+    const int max_tile_idx = (DIM / TILE_SIZE + (DIM % TILE_SIZE > 0));
+
     for (unsigned it = 1; it <= nb_iter; it++)
     {
-        unsigned changes = 0;
-        const int max_tile_idx = (DIM / TILE_SIZE + (DIM % TILE_SIZE > 0));
-        
         #pragma omp parallel for reduction(+:changes) schedule(runtime)
         for (int y = 0; y < max_tile_idx; y+=2)
         {
@@ -362,11 +344,11 @@ unsigned sable_compute_ompfor(unsigned nb_iter)
 // ./run -k sable -v ompfor2
 unsigned sable_compute_ompfor2(unsigned nb_iter)
 {
+    unsigned changes = 0;
+    const int max_tile_idx = (DIM / TILE_SIZE + (DIM % TILE_SIZE > 0));
+
     for (unsigned it = 1; it <= nb_iter; it++)
     {
-        unsigned changes = 0;
-        const int max_tile_idx = (DIM / TILE_SIZE + (DIM % TILE_SIZE > 0));
-        
         #pragma omp parallel for reduction(+:changes) schedule(runtime)
         for (int y = 0; y < max_tile_idx; y+=2)
         {
@@ -392,6 +374,134 @@ unsigned sable_compute_ompfor2(unsigned nb_iter)
         if (changes == 0)
             return it;
 
+        changes = 0;
+    }
+
+    return 0;
+}
+
+///////////////////////////// Version parallèle tuilée en damié (ompfor_tiled)
+// ./run -k sable -v ompfor_tiled
+unsigned sable_compute_ompfor_tiled(unsigned nb_iter)
+{
+    const int max_tile_idx = (DIM / TILE_SIZE + (DIM % TILE_SIZE > 0));
+    unsigned changes = 0;
+
+    for (unsigned it = 1; it <= nb_iter; it++) {
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 0; y < max_tile_idx; y+=2){
+            for (int x = 0; x < max_tile_idx; x +=2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+        
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 1; y < max_tile_idx; y+=2){
+            for (int x = 1; x < max_tile_idx; x += 2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 0; y < max_tile_idx; y+=2){
+            for (int x = 1; x < max_tile_idx; x +=2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+        
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 1; y < max_tile_idx; y+=2){
+            for (int x = 0; x < max_tile_idx; x += 2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+            
+        if (changes == 0)
+            return it;
+        
+        changes = 0;
+    }
+
+    return 0;
+}
+
+///////////////////////////// Version parallèle tuilée en damié avec double balayage (ompfor_tiled2)
+// ./run -k sable -v ompfor_tiled2
+unsigned sable_compute_ompfor_tiled2(unsigned nb_iter)
+{
+    const int max_tile_idx = (DIM / TILE_SIZE + (DIM % TILE_SIZE > 0));
+    unsigned changes = 0;
+
+    for (unsigned it = 1; it <= nb_iter; it++) {
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 0; y < max_tile_idx; y+=2){
+            for (int x = 0; x < max_tile_idx; x +=2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile2(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+        
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 1; y < max_tile_idx; y+=2){
+            for (int x = 1; x < max_tile_idx; x += 2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile2(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 0; y < max_tile_idx; y+=2){
+            for (int x = 1; x < max_tile_idx; x +=2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile2(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+        
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 1; y < max_tile_idx; y+=2){
+            for (int x = 0; x < max_tile_idx; x += 2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile2(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+            
+        if (changes == 0)
+            return it;
+        
         changes = 0;
     }
 
@@ -450,10 +560,10 @@ unsigned sable_compute_vec_ompfor(unsigned nb_iter)
     }
 
     unsigned changes = 0;
+    const int max_tile_idx = (DIM / TILE_SIZE + (DIM % TILE_SIZE > 0));
+
     for (unsigned it = 1; it <= nb_iter; it++)
     {
-        const int max_tile_idx = (DIM / TILE_SIZE + (DIM % TILE_SIZE > 0));
-        
         #pragma omp parallel for reduction(+:changes) schedule(runtime)
         for (int y = 0; y < max_tile_idx; y+=2)
         {
@@ -525,5 +635,133 @@ unsigned sable_compute_vec_ompfor2(unsigned nb_iter)
 
         changes = 0;
     }
+    return 0;
+}
+
+///////////////////////////// Version vectoriel tuilée en damié avec double balayage (vec_ompfor_tiled)
+// ./run -k sable -v vec_ompfor_tiled
+unsigned sable_compute_vec_ompfor_tiled(unsigned nb_iter)
+{
+    const int max_tile_idx = (DIM / TILE_SIZE + (DIM % TILE_SIZE > 0));
+    unsigned changes = 0;
+
+    for (unsigned it = 1; it <= nb_iter; it++) {
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 0; y < max_tile_idx; y+=2){
+            for (int x = 0; x < max_tile_idx; x +=2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile_vec(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+        
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 1; y < max_tile_idx; y+=2){
+            for (int x = 1; x < max_tile_idx; x += 2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile_vec(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 0; y < max_tile_idx; y+=2){
+            for (int x = 1; x < max_tile_idx; x +=2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile_vec(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+        
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 1; y < max_tile_idx; y+=2){
+            for (int x = 0; x < max_tile_idx; x += 2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile_vec(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+            
+        if (changes == 0)
+            return it;
+        
+        changes = 0;
+    }
+
+    return 0;
+}
+
+///////////////////////////// Version vectoriel tuilée en damié avec double balayage (vec_ompfor_tiled2)
+// ./run -k sable -v vec_ompfor_tiled2
+unsigned sable_compute_vec_ompfor_tiled2(unsigned nb_iter)
+{
+    const int max_tile_idx = (DIM / TILE_SIZE + (DIM % TILE_SIZE > 0));
+    unsigned changes = 0;
+
+    for (unsigned it = 1; it <= nb_iter; it++) {
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 0; y < max_tile_idx; y+=2){
+            for (int x = 0; x < max_tile_idx; x +=2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile_vec2(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+        
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 1; y < max_tile_idx; y+=2){
+            for (int x = 1; x < max_tile_idx; x += 2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile_vec2(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 0; y < max_tile_idx; y+=2){
+            for (int x = 1; x < max_tile_idx; x +=2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile_vec2(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+        
+        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+        for (int y = 1; y < max_tile_idx; y+=2){
+            for (int x = 0; x < max_tile_idx; x += 2){
+                const int y_start   = y * TILE_SIZE;
+                const int x_start   = x * TILE_SIZE;
+                const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+                
+                changes += do_tile_vec2(x_start, y_start, width, height, omp_get_thread_num());
+            }
+        }
+            
+        if (changes == 0)
+            return it;
+        
+        changes = 0;
+    }
+
     return 0;
 }
