@@ -8,8 +8,12 @@
 static uint64_t *TABLE = NULL;
 static uint64_t max_grains;
 
-// #define table_vec(X, Y) TABLE_vec[(X)*(DIM + 32) + (Y) + DIM - 1]
-#define table(X, Y) TABLE[(DIM + 8) * ((X) + 1) + (4 + (Y))]
+#define LEFT_OFFSET     4
+#define RIGHT_OFFSET    4
+#define UP_OFFSET       1
+#define DOWN_OFFSET     1
+
+#define table(X, Y) TABLE[((LEFT_OFFSET) + DIM + (RIGHT_OFFSET)) * ((X) + 1) + ((LEFT_OFFSET) + (Y))]
 static inline uint64_t* table_addr(const int i, const int j) {
     return &(table(i, j));
 }
@@ -19,8 +23,8 @@ static inline uint64_t* table_addr(const int i, const int j) {
 void sable_init()
 {
     // on fait un alloc aligné sur 32 bit pour pouvoir utiliser load au lieu de loadu pour haut et bas
-    TABLE = aligned_alloc(32, (DIM + 8) * (DIM + 2) * sizeof(uint64_t));
-    memset(TABLE, 0, (DIM + 8) * (DIM + 2) * sizeof(uint64_t));
+    TABLE = aligned_alloc(32, (LEFT_OFFSET + DIM + RIGHT_OFFSET) * (UP_OFFSET + DIM + DOWN_OFFSET) * sizeof(uint64_t));
+    memset(TABLE, 0, (LEFT_OFFSET + DIM + RIGHT_OFFSET) * (UP_OFFSET + DIM + DOWN_OFFSET) * sizeof(uint64_t));
 }
 
 void sable_finalize()
@@ -189,10 +193,41 @@ static unsigned do_tile(int x, int y, int width, int height, int who)
     monitoring_start_tile(who);
     unsigned changes = 0;
     for (int i = y; i < y + height; i++)
-        for (int j = x; j < x + width; j++)
-        {   
+        for (int j = x; j < x + width; j++) {
             changes += compute_new_state(i, j);
         }
+    monitoring_end_tile(x, y, width, height, who);
+
+    return changes;
+}
+
+static unsigned do_tile2(int x, int y, int width, int height, int who)
+{
+    PRINT_DEBUG('c', "tuile [%d-%d][%d-%d] traitée\n", x, x + width - 1, y, y + height - 1);
+
+    unsigned changes = 0, diff;
+    monitoring_start_tile(who);
+    for (int i = y; i < y + height; i++) {
+        for (int j = x; j < x + width; j++) {
+            diff = compute_new_state(i, j);
+            changes += diff;
+
+            if (diff == 0) continue;
+
+            diff = compute_new_state(i, j);
+            changes += diff;
+        }
+
+        for (int j = x; j < x + width; j++) {
+            diff = compute_new_state(i, j);
+            changes += diff;
+
+            if (diff == 0) continue;
+
+            diff = compute_new_state(i, j);
+            changes += diff;
+        }
+    }
     monitoring_end_tile(x, y, width, height, who);
 
     return changes;
@@ -205,15 +240,15 @@ static unsigned do_tile_vec(int x, int y, int width, int height, int who)
                 y + height - 1);
 
     monitoring_start_tile(who);
-    unsigned changement = 0;
+    unsigned changes = 0;
     for (int i = y; i < y + height; i++) {
         for (int j = x; j < x + width; j += VEC_SIZE/2) {
-            changement += compute_new_state_vec(i, j);
+            changes += compute_new_state_vec(i, j);
         }
     }
     monitoring_end_tile(x, y, width, height, who);
 
-    return changement;
+    return changes;
 }
 
 static unsigned do_tile_vec2(int x, int y, int width, int height, int who)
@@ -222,75 +257,47 @@ static unsigned do_tile_vec2(int x, int y, int width, int height, int who)
     PRINT_DEBUG('c', "tuile [%d-%d][%d-%d] traitée\n", x, x + width - 1, y,
                 y + height - 1);
 
-
+    unsigned changes = 0, diff;
     monitoring_start_tile(who);
-    unsigned changement = 0, diff;
     for (int i = y; i < y + height; i++) {
         for (int j = x; j < x + width; j += VEC_SIZE/2) {
             diff = compute_new_state_vec(i, j);
-            changement += diff;
+            changes += diff;
 
             if (diff == 0) continue;
 
             diff = compute_new_state_vec(i, j);
-            changement += diff;
-
-            diff = 0;
+            changes += diff;
         }
 
         for (int j = x + width - 1; j <= x; j -= VEC_SIZE/2) {
             diff = compute_new_state_vec(i, j);
-            changement += diff;
+            changes += diff;
 
             if (diff == 0) continue;
 
             diff = compute_new_state_vec(i, j);
-            changement += diff;
-
-            diff = 0;
+            changes += diff;
         }
     }
     monitoring_end_tile(x, y, width, height, who);
 
-    return changement;
+    return changes;
 }
 
 ///////////////////////////// Version séquentielle (seq)
 // ./run -k sabke -v vec
 unsigned sable_compute_seq(unsigned nb_iter)
 {
-    unsigned changement = 0;
+    unsigned changes = 0;
     for (unsigned it = 1; it <= nb_iter; it++)
     {
         // On traite toute l'image en un coup (oui, c'est une grosse tuile)
-        changement += do_tile(0, 0, DIM, DIM, 0);
-        if (changement == 0)
+        changes += do_tile(0, 0, DIM, DIM, 0);
+        if (changes == 0)
             return it;
-        changement = 0;
+        changes = 0;
     }
-    return 0;
-}
-
-///////////////////////////// Version séquentielle tuilée (tiled)
-// ./run -k sabke -v tuiled
-unsigned sable_compute_tiled(unsigned nb_iter)
-{
-    for (unsigned it = 1; it <= nb_iter; it++)
-    {
-        unsigned changement = 0;
-
-        for (int y = 0; y < DIM; y += TILE_SIZE)
-            for (int x = 0; x < DIM; x += TILE_SIZE)
-                changement += do_tile(x + (x == 0), y + (y == 0),
-                                TILE_SIZE - ((x + TILE_SIZE == DIM) + (x == 0)),
-                                TILE_SIZE - ((y + TILE_SIZE == DIM) + (y == 0)),
-                                0 /* CPU id */);
-        if (changement == 0)
-            return it;
-        
-        changement = 0;
-    }
-
     return 0;
 }
 
@@ -300,7 +307,7 @@ unsigned sable_compute_ompfor(unsigned nb_iter)
 {
     for (unsigned it = 1; it <= nb_iter; it++)
     {
-        unsigned changes = 0, diff;
+        unsigned changes = 0;
         const int max_tile_idx = (DIM / TILE_SIZE + (DIM % TILE_SIZE > 0));
         
         #pragma omp parallel for reduction(+:changes) schedule(runtime)
@@ -311,15 +318,7 @@ unsigned sable_compute_ompfor(unsigned nb_iter)
             const int width     = DIM;
             const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
             
-            diff = do_tile(x_start, y_start, width, height, omp_get_thread_num());
-            changes += diff;
-
-            if (diff == 0) continue;
-
-            diff = do_tile(x_start, y_start, width, height, omp_get_thread_num());
-            changes += diff;
-
-            diff = 0;
+            changes += do_tile(x_start, y_start, width, height, omp_get_thread_num());
         }
 
         #pragma omp parallel for reduction(+:changes) schedule(runtime)
@@ -330,15 +329,47 @@ unsigned sable_compute_ompfor(unsigned nb_iter)
             const int width     = DIM;
             const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
             
-            diff = do_tile(x_start, y_start, width, height, omp_get_thread_num());
-            changes += diff;
+            changes += do_tile(x_start, y_start, width, height, omp_get_thread_num());
+        }
 
-            if (diff == 0) continue;
+        if (changes == 0)
+            return it;
 
-            diff = do_tile(x_start, y_start, width, height, omp_get_thread_num());
-            changes += diff;
+        changes = 0;
+    }
 
-            diff = 0;
+    return 0;
+}
+
+///////////////////////////// Version parallèle tuilée avec double balayage (ompfor2)
+// ./run -k sabke -v ompfor2
+unsigned sable_compute_ompfor2(unsigned nb_iter)
+{
+    for (unsigned it = 1; it <= nb_iter; it++)
+    {
+        unsigned changes = 0;
+        const int max_tile_idx = (DIM / TILE_SIZE + (DIM % TILE_SIZE > 0));
+        
+        #pragma omp parallel for reduction(+:changes) schedule(runtime)
+        for (int y = 0; y < max_tile_idx; y+=2)
+        {
+            const int x_start   = 0;
+            const int y_start   = y * TILE_SIZE;
+            const int width     = DIM;
+            const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+            
+            changes += do_tile2(x_start, y_start, width, height, omp_get_thread_num());
+        }
+
+        #pragma omp parallel for reduction(+:changes) schedule(runtime)
+        for (int y = 1; y < max_tile_idx; y+=2)
+        {
+            const int x_start   = 0;
+            const int y_start   = y * TILE_SIZE;
+            const int width     = DIM;
+            const int height    = (y == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
+            
+            changes += do_tile2(x_start, y_start, width, height, omp_get_thread_num());
         }
 
         if (changes == 0)
@@ -359,14 +390,14 @@ unsigned sable_compute_vec(unsigned nb_iter)
         assert(DIM % 8 == 0);
     }
 
-    unsigned changement = 0;
+    unsigned changes = 0;
     for (unsigned it = 1; it <= nb_iter; it++)
     {
         // On traite toute l'image en un coup (oui, c'est une grosse tuile)
-        changement += do_tile_vec(0, 0, DIM, DIM, 0);
-        if (changement == 0)
+        changes += do_tile_vec(0, 0, DIM, DIM, 0);
+        if (changes == 0)
             return it;
-        changement = 0;
+        changes = 0;
     }
     return 0;
 }
@@ -380,14 +411,14 @@ unsigned sable_compute_vec2(unsigned nb_iter)
         assert(DIM % 8 == 0);
     }
 
-    unsigned changement = 0;
+    unsigned changes = 0;
     for (unsigned it = 1; it <= nb_iter; it++)
     {
         // On traite toute l'image en un coup (oui, c'est une grosse tuile)
-        changement += do_tile_vec2(0, 0, DIM, DIM, 0);
-        if (changement == 0)
+        changes += do_tile_vec2(0, 0, DIM, DIM, 0);
+        if (changes == 0)
             return it;
-        changement = 0;
+        changes = 0;
     }
     return 0;
 }
