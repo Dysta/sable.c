@@ -135,7 +135,7 @@ void sable_draw_alea(void)
     }
 }
 
-///////////////////////////// Version séquentielle simple (seq)
+// calcule des grains de sable
 static inline unsigned compute_new_state(int y, int x)
 {
     if (table(y, x) >= 4)
@@ -151,7 +151,6 @@ static inline unsigned compute_new_state(int y, int x)
     return 0;
 }
 
-///////////////////////////// Version vectorielle simple (vec)
 static unsigned compute_new_state_vec(int y, int x)
 {
     void* addr_center = (void*) table_addr(y, x);
@@ -203,6 +202,7 @@ static unsigned compute_new_state_vec(int y, int x)
     return 1;
 }
 
+// séparation en tuile
 static unsigned do_tile(int x, int y, int width, int height, int who)
 {
     PRINT_DEBUG('c', "tuile [%d-%d][%d-%d] traitée\n", x, x + width - 1, y, y + height - 1);
@@ -283,6 +283,8 @@ static unsigned do_tile_vec2(int x, int y, int width, int height, int who)
 
     return changes;
 }
+
+// différentes version du noyau
 
 ///////////////////////////// Version séquentielle (seq)
 // ./run -k sable -v vec
@@ -507,6 +509,8 @@ unsigned sable_compute_ompfor_tiled2(unsigned nb_iter)
 
     return 0;
 }
+
+// compute vectoriel
 
 ///////////////////////////// Version vectorielle sequentielle (vec)
 // ./run -k sable -v vec
