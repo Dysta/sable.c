@@ -39,7 +39,6 @@ static inline uint64_t* table_addr(const int i, const int j) {
 
 void sable_init()
 {
-    // on fait un alloc aligné sur 32 bit pour pouvoir utiliser load au lieu de loadu pour haut et bas
     TABLE = aligned_alloc(32, (LEFT_OFFSET + DIM + RIGHT_OFFSET) * (UP_OFFSET + DIM + DOWN_OFFSET) * sizeof(uint64_t));
     memset(TABLE, 0, (LEFT_OFFSET + DIM + RIGHT_OFFSET) * (UP_OFFSET + DIM + DOWN_OFFSET) * sizeof(uint64_t));
 }
@@ -140,7 +139,7 @@ static inline unsigned compute_new_state(int y, int x)
 {
     if (table(y, x) >= 4)
     {
-        unsigned long int div4 = table(y, x) >> 2;
+        uint64_t div4 = table(y, x) >> 2;
         table(y, x - 1) += div4;
         table(y, x + 1) += div4;
         table(y - 1, x) += div4;
@@ -162,11 +161,11 @@ static unsigned compute_new_state_vec(int y, int x)
     // création d'un vecteur contenant table(y, x)
     __m256i vecTable_center = _mm256_load_si256(addr_center);
     // création des vecteurs pour comparaisons et opérations
-    __m256i vecThree = _mm256_set_epi32(3, 3, 3, 3, 3, 3, 3, 3);
+    __m256i vecThree = _mm256_set_epi64x(3, 3, 3, 3);
 
     // compare vecTable[x] > 3, 0xFF si vrai, 0 sinon
     // reviens à comparer vecTable[x] >= 4
-    __m256i mask = _mm256_cmpgt_epi32(vecTable_center, vecThree);
+    __m256i mask = _mm256_cmpgt_epi64(vecTable_center, vecThree);
 
     // Si il y a que des 0 dans le mask, on s'arrête la
     if (_mm256_testz_si256(mask, mask))
@@ -174,7 +173,7 @@ static unsigned compute_new_state_vec(int y, int x)
 
     // div4 = table(y, x) / 4
     // soit div4[x] contient table(y, x) / 4, 0 autrement (pour ne pas changer l'addition)
-    __m256i div4 = _mm256_srli_epi32(vecTable_center, 2);
+    __m256i div4 = _mm256_srli_epi64(vecTable_center, 2);
 
     // table(y, x) %= 4 -> &= 3
     __m256i modulus_data = _mm256_and_si256(vecTable_center, vecThree);
@@ -184,19 +183,19 @@ static unsigned compute_new_state_vec(int y, int x)
     // table(y - 1, x) += div4
     // puis store dans l'image à la même place
     __m256i vecTable_left = _mm256_loadu_si256(addr_left);
-    vecTable_left = _mm256_add_epi32(vecTable_left, div4);
+    vecTable_left = _mm256_add_epi64(vecTable_left, div4);
     _mm256_storeu_si256(addr_left, vecTable_left);
 
     __m256i vecTable_right = _mm256_loadu_si256(addr_right);
-    vecTable_right = _mm256_add_epi32(vecTable_right, div4);
+    vecTable_right = _mm256_add_epi64(vecTable_right, div4);
     _mm256_storeu_si256(addr_right, vecTable_right);
 
     __m256i vecTable_down = _mm256_load_si256(addr_down);
-    vecTable_down = _mm256_add_epi32(vecTable_down, div4);
+    vecTable_down = _mm256_add_epi64(vecTable_down, div4);
     _mm256_store_si256(addr_down, vecTable_down);
 
     __m256i vecTable_up = _mm256_load_si256(addr_up);
-    vecTable_up = _mm256_add_epi32(vecTable_up, div4);
+    vecTable_up = _mm256_add_epi64(vecTable_up, div4);
     _mm256_store_si256(addr_up, vecTable_up);
 
     return 1;
@@ -392,7 +391,7 @@ unsigned sable_compute_ompfor_tiled(unsigned nb_iter)
     for (unsigned it = 1; it <= nb_iter; it++) {
         #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
         for (int y = 0; y < max_tile_idx; y+=2){
-            for (int x = 0; x < max_tile_idx; x +=2){
+            for (int x = 0; x < max_tile_idx; x += 2){
                 const int y_start   = y * TILE_SIZE;
                 const int x_start   = x * TILE_SIZE;
                 const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
@@ -413,9 +412,10 @@ unsigned sable_compute_ompfor_tiled(unsigned nb_iter)
                 changes += do_tile(x_start, y_start, width, height, omp_get_thread_num());
             }
         }
-        #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
+
+        #pragma  omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
         for (int y = 0; y < max_tile_idx; y+=2){
-            for (int x = 1; x < max_tile_idx; x +=2){
+            for (int x = 1; x < max_tile_idx; x += 2){
                 const int y_start   = y * TILE_SIZE;
                 const int x_start   = x * TILE_SIZE;
                 const int width     = (x == max_tile_idx - 1 && DIM % TILE_SIZE != 0) ? DIM % TILE_SIZE : TILE_SIZE;
@@ -454,6 +454,7 @@ unsigned sable_compute_ompfor_tiled2(unsigned nb_iter)
     unsigned changes = 0;
 
     for (unsigned it = 1; it <= nb_iter; it++) {
+        
         #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
         for (int y = 0; y < max_tile_idx; y+=2){
             for (int x = 0; x < max_tile_idx; x +=2){
@@ -477,6 +478,7 @@ unsigned sable_compute_ompfor_tiled2(unsigned nb_iter)
                 changes += do_tile2(x_start, y_start, width, height, omp_get_thread_num());
             }
         }
+        
         #pragma omp parallel for reduction(+:changes) schedule(runtime) collapse(2)
         for (int y = 0; y < max_tile_idx; y+=2){
             for (int x = 1; x < max_tile_idx; x +=2){
