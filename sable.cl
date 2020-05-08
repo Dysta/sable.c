@@ -1,24 +1,30 @@
 #include "kernel/ocl/common.cl"
 
-
-__kernel void sable_ocl (__global unsigned *in, __global unsigned *out)
+__kernel void sable_ocl (__global unsigned *in, __global unsigned *out, __global int* diff)
 {
-    int x = get_global_id (0);
-    int y = get_global_id (1);
+    int x = get_global_id(0);
+    int y = get_global_id(1);
     
-    unsigned tmp = in[y * DIM + x];
+     out[y * DIM + x] = in[y * DIM + x] % 4;
 
-    if (tmp > 4)
-        tmp &= 3;
+    if (x + 1 <= DIM - 1)
+        out[y * DIM + x] += in[y * DIM + (x + 1)] / 4;
 
-    tmp += in[y+1 * DIM + x] >> 2;
-    tmp += in[y-1 * DIM + x] >> 2;
-    tmp += in[y * DIM + x+1] >> 2;
-    tmp += in[y * DIM + x-1] >> 2;
+    if (x - 1 >= 0)
+        out[y * DIM + x] += in[y * DIM + (x - 1)] / 4;
 
-    barrier (CLK_LOCAL_MEM_FENCE);
+    if (y + 1 <= DIM - 1)
+        out[y * DIM + x] += in[(y + 1) * DIM + x] / 4;
 
-    out[y * DIM + x] = tmp;
+    if (y - 1 >= 0)
+        out[y * DIM + x] += in[(y - 1) * DIM + x] / 4;
+
+    // barrier (CLK_LOCAL_MEM_FENCE);
+
+    // out[y * DIM + x] = tmp;
+
+    if (out[y * DIM + x] != in[y * DIM + x] && *diff == 0)
+        *diff = 1;
 }
 
 // DO NOT MODIFY: this kernel updates the OpenGL texture buffer
