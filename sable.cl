@@ -1,9 +1,9 @@
 #include "kernel/ocl/common.cl"
 
-__kernel void sable_ocl (__global unsigned *in, __global unsigned *out, __global int* diff)
+__kernel void sable_ocl_sync (__global unsigned *in, __global unsigned *out, __global int* changes)
 {
-    int x = get_global_id(0);
-    int y = get_global_id(1);
+    const int x = get_global_id(0);
+    const int y = get_global_id(1);
     
      out[y * DIM + x] = in[y * DIM + x] % 4;
 
@@ -23,8 +23,8 @@ __kernel void sable_ocl (__global unsigned *in, __global unsigned *out, __global
 
     // out[y * DIM + x] = tmp;
 
-    if (out[y * DIM + x] != in[y * DIM + x] && *diff == 0)
-        *diff = 1;
+    if (*changes == 0 && out[y * DIM + x] != in[y * DIM + x])
+        *changes = 1;
 }
 
 // DO NOT MODIFY: this kernel updates the OpenGL texture buffer
