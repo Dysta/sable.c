@@ -5,11 +5,12 @@ import os
 
 options = {}
 ompenv  = {}
-nbrun   = 3
+nbrun   = 1
 # Configuration global
 options["-k "] = ["sable"]
 options["-s "] = [480]
 options["-a "] = ["4partout"]
+options["-g "] = [4 ,8, 16, 32, 48, 64, 128, 256]
 # Configuration des versions mono-thread
 ompenv["OMP_NUM_THREADS="]  = [1]
 ompenv["OMP_PLACES="]       = ["cores"]
