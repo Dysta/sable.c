@@ -159,8 +159,9 @@ unsigned sable_compute_tiled(unsigned nb_iter)
 
 /////////////////////// OpenCL
 // static var for OCL version
-static int *stable_tile;
-static cl_mem ocl_changes, ocl_stable_tile;
+static int *in_stable_tile = NULL;
+static int *out_stable_tile = NULL;
+static cl_mem ocl_changes, ocl_in_stable_tile, ocl_out_stable_tile;
 #define TILE_N (SIZE/TILEX)
 
 ///// SYNCHRONIZED VERSION
@@ -241,22 +242,32 @@ void sable_refresh_img_ocl_sync()
 // ./run -k sable -o -v ocl_tiled
 void sable_init_ocl_tiled(void)
 {
-    TABLE       = calloc(DIM * DIM, sizeof(uint32_t));
-    stable_tile = calloc(TILE_N * TILE_N, sizeof(int));
+    TABLE               = calloc(DIM * DIM, sizeof(uint32_t));
+    in_stable_tile      = calloc(TILE_N * TILE_N, sizeof(int));
+    out_stable_tile     = calloc(TILE_N * TILE_N, sizeof(int));
 
-    //TODO: voir si on en a besoin
     ocl_changes = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int), NULL, NULL);
     if (!ocl_changes)
         exit_with_error("Failed to allocate ocl changes variable");
     
-    ocl_stable_tile = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int) * TILE_N * TILE_N, NULL, NULL);
-    if (!ocl_stable_tile)
+    ocl_in_stable_tile = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int) * TILE_N * TILE_N, NULL, NULL);
+    if (!ocl_in_stable_tile)
         exit_with_error("Failed to allocate stable tile buffer");
 
+    ocl_out_stable_tile = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int) * TILE_N * TILE_N, NULL, NULL);
+    if (!ocl_out_stable_tile)
+        exit_with_error("Failed to allocate instable tile buffer");
+
     check(
-        clEnqueueWriteBuffer(queue, ocl_stable_tile, CL_TRUE, 0,
+        clEnqueueWriteBuffer(queue, ocl_in_stable_tile, CL_TRUE, 0,
                                 sizeof(int) * TILE_N * TILE_N, 
-                                stable_tile, 0, NULL, NULL),
+                                in_stable_tile, 0, NULL, NULL),
+        "Failed to write to ocl_stable_change");
+    
+    check(
+        clEnqueueWriteBuffer(queue, ocl_out_stable_tile, CL_TRUE, 0,
+                                sizeof(int) * TILE_N * TILE_N, 
+                                out_stable_tile, 0, NULL, NULL),
         "Failed to write to ocl_stable_change");
 }
 
@@ -265,15 +276,25 @@ unsigned sable_invoke_ocl_tiled(unsigned nb_iter)
     size_t global[2] = {SIZE, SIZE};  // global domain size for our calculation
     size_t local[2] = {TILEX, TILEY}; // local domain size for our calculation
     cl_int err;
+
+    int current_changes;
     
     for (unsigned it = 1; it <= nb_iter; it++)
     {
+        current_changes = 0;
+        check(
+            clEnqueueWriteBuffer(queue, ocl_changes, CL_TRUE, 0,
+                                 sizeof(int), &current_changes, 0, NULL, NULL),
+            "Failed to write to ocl_changes");
+        
         // Set kernel arguments
         //
         err = 0;
         err |= clSetKernelArg(compute_kernel, 0, sizeof(cl_mem), &cur_buffer);
         err |= clSetKernelArg(compute_kernel, 1, sizeof(cl_mem), &next_buffer);
-        err |= clSetKernelArg(compute_kernel, 2, sizeof(cl_mem), &ocl_stable_tile);
+        err |= clSetKernelArg(compute_kernel, 2, sizeof(cl_mem), &ocl_in_stable_tile);
+        err |= clSetKernelArg(compute_kernel, 3, sizeof(cl_mem), &ocl_out_stable_tile);
+        err |= clSetKernelArg(compute_kernel, 4, sizeof(cl_mem), &ocl_changes);
         check(err, "Failed to set kernel arguments");
 
         err = clEnqueueNDRangeKernel(queue, compute_kernel, 2, NULL, global, local,
@@ -285,18 +306,21 @@ unsigned sable_invoke_ocl_tiled(unsigned nb_iter)
             cl_mem tmp = cur_buffer;
             cur_buffer = next_buffer;
             next_buffer = tmp;
+
+            tmp     = ocl_in_stable_tile;
+            ocl_in_stable_tile    = ocl_out_stable_tile;
+            ocl_out_stable_tile   = tmp;
         }
 
-        err = clEnqueueReadBuffer(queue, ocl_stable_tile, CL_TRUE, 0,
-                                    sizeof(int) * TILE_N * TILE_N, stable_tile, 0, NULL, NULL);
+        check(
+            clEnqueueReadBuffer(queue, ocl_changes, CL_TRUE, 0,
+                                sizeof(int), &current_changes, 0, NULL, NULL),
+            "Failed to read in current_changes");
 
-        for (int i = 0; i < TILE_N; i++) {
-            for (int j = 0; j < TILE_N; j++) {
-                printf("%d_%d[%d] ", i, j, stable_tile[j * TILE_N + i]);
-            }
-            printf("\n");
+        if (current_changes == 0)
+        {
+            return it;
         }
-        printf("\n");
     }
 
     return 0;

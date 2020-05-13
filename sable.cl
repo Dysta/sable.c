@@ -28,7 +28,9 @@ __kernel void sable_ocl_sync (__global unsigned *in, __global unsigned *out, __g
 
 #define TILE_N (SIZE/TILEX)
 
-__kernel void sable_ocl_tiled (__global unsigned *in, __global unsigned *out, __global int* stable_tile)
+__kernel void sable_ocl_tiled (__global unsigned *in, __global unsigned *out, 
+                                __global int* in_stable_tile, __global int* out_stable_tile, 
+                                __global int* changes)
 {
     const int x = get_global_id(0);
     const int y = get_global_id(1);
@@ -36,7 +38,7 @@ __kernel void sable_ocl_tiled (__global unsigned *in, __global unsigned *out, __
     const int ytile = get_group_id(1);
 
     // Si la tile est stable, on passe
-    if (stable_tile[ytile * TILE_N + xtile] == 0) {
+    if (in_stable_tile[ytile * TILE_N + xtile] == 0) {
         out[y * DIM + x] = in[y * DIM + x] % 4;
 
         // Update gauche/droite
@@ -50,31 +52,13 @@ __kernel void sable_ocl_tiled (__global unsigned *in, __global unsigned *out, __
             out[y * DIM + x] += in[(y + 1) * DIM + x] / 4;
         if (y - 1 >= 0)
             out[y * DIM + x] += in[(y - 1) * DIM + x] / 4;
+        
+        out_stable_tile[ytile * TILE_N + xtile] = 0;
+        in_stable_tile[ytile * TILE_N + xtile] = 1;
     }
 
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    if (out[y * DIM + x] == in[y * DIM + x] && 
-        stable_tile[ytile * TILE_N + xtile] == 0) {
-        // si on a rien changé on dit qu'elle est stable
-        stable_tile[ytile * TILE_N + xtile] = 1;
-    } else {
-        // sinon on dit qu'elle est pas stable
-        stable_tile[ytile * TILE_N + xtile] = 0;
-
-        // ainsi que ses voisines (car éboulement possible)
-        // Update tuile gauche/droite
-        if (xtile - 1 >= 0)
-            stable_tile[ytile * TILE_N + (xtile - 1)] = 0;
-        if (xtile + 1 <= TILEX - 1)
-            stable_tile[ytile * TILE_N + (xtile + 1)] = 0;
-
-        // Update tuile haut/bas
-        if (ytile - 1 >= 0)
-            stable_tile[(ytile - 1) * TILE_N + xtile] = 0;
-        if (ytile + 1 <= TILEY - 1)
-            stable_tile[(ytile + 1) * TILE_N + xtile] = 0;
-    }
+    if (*changes == 0 && out[y * DIM + x] != in[y * DIM + x])
+        *changes = 1;
 }
 
 // DO NOT MODIFY: this kernel updates the OpenGL texture buffer
