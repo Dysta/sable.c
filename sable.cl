@@ -8,15 +8,15 @@ __kernel void sable_ocl_sync (__global unsigned *in, __global unsigned *out, __g
     out[y * DIM + x] = in[y * DIM + x] % 4;
 
     // Update gauche/droite
-    if (x + 1 <= DIM - 1)
+    if (x + 1 <= DIM - 2)
         out[y * DIM + x] += in[y * DIM + (x + 1)] / 4;
-    if (x - 1 >= 0)
+    if (x - 1 >= 1)
         out[y * DIM + x] += in[y * DIM + (x - 1)] / 4;
 
     // Update haut/bas
-    if (y + 1 <= DIM - 1)
+    if (y + 1 <= DIM - 2)
         out[y * DIM + x] += in[(y + 1) * DIM + x] / 4;
-    if (y - 1 >= 0)
+    if (y - 1 >= 1)
         out[y * DIM + x] += in[(y - 1) * DIM + x] / 4;
 
     // barrier(CLK_LOCAL_MEM_FENCE);
@@ -42,23 +42,38 @@ __kernel void sable_ocl_tiled (__global unsigned *in, __global unsigned *out,
         out[y * DIM + x] = in[y * DIM + x] % 4;
 
         // Update gauche/droite
-        if (x + 1 <= DIM - 1)
+        if (x + 1 <= DIM - 2)
             out[y * DIM + x] += in[y * DIM + (x + 1)] / 4;
-        if (x - 1 >= 0)
+        if (x - 1 >= 1)
             out[y * DIM + x] += in[y * DIM + (x - 1)] / 4;
 
         // Update haut/bas
-        if (y + 1 <= DIM - 1)
+        if (y + 1 <= DIM - 2)
             out[y * DIM + x] += in[(y + 1) * DIM + x] / 4;
-        if (y - 1 >= 0)
+        if (y - 1 >= 1)
             out[y * DIM + x] += in[(y - 1) * DIM + x] / 4;
+            
+        if (out[y * DIM + x] != in[y * DIM + x]){
+			if ( xtile + 1 <= TILE_N -1)
+				out_stable_tile[ytile * TILE_N + (xtile+1)] = 0;
+			if ( xtile - 1 >= 0)
+				out_stable_tile[ytile * TILE_N + (xtile-1)] = 0;
+			if ( ytile + 1  <= TILE_N -1)
+				out_stable_tile[(ytile+1) * TILE_N + xtile] = 0;
+			if ( ytile - 1 >= 0)
+				out_stable_tile[(ytile-1) * TILE_N + xtile] = 0;
+			out_stable_tile[ytile * TILE_N + xtile] = 0;
+			}
+		
         
-        out_stable_tile[ytile * TILE_N + xtile] = 0;
-        in_stable_tile[ytile * TILE_N + xtile] = 1;
     }
-
-    if (*changes == 0 && out[y * DIM + x] != in[y * DIM + x])
+	in_stable_tile[ytile * TILE_N + xtile] = 1;
+	
+	
+    if (*changes == 0 && out[y * DIM + x] != in[y * DIM + x]){
         *changes = 1;
+
+	}
 }
 
 // DO NOT MODIFY: this kernel updates the OpenGL texture buffer

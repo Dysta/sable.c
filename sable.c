@@ -246,6 +246,11 @@ void sable_init_ocl_tiled(void)
     in_stable_tile      = calloc(TILE_N * TILE_N, sizeof(int));
     out_stable_tile     = calloc(TILE_N * TILE_N, sizeof(int));
 
+    for (int i = 0 ; i < TILE_N * TILE_N ; i++){
+		in_stable_tile[i]  = 0;
+		out_stable_tile[i] = 1;
+    }
+
     ocl_changes = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int), NULL, NULL);
     if (!ocl_changes)
         exit_with_error("Failed to allocate ocl changes variable");
