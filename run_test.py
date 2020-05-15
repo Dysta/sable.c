@@ -23,7 +23,9 @@ VARIANTS = [
         'options': ['-o'],
         'env' : {
             'TILEX': '16',
-            'TILEY': '16'
+            'TILEY': '16',
+            'TILEX': '32',
+            'TILEY': '32'
         }
 
     },
@@ -32,7 +34,20 @@ VARIANTS = [
         'options': ['-o'],
         'env' : {
             'TILEX': '16',
-            'TILEY': '16'
+            'TILEY': '16',
+            'TILEX': '32',
+            'TILEY': '32'
+        }
+
+    },
+    {
+        'name': 'ocl_tiled_freq',
+        'options': ['-o'],
+        'env' : {
+            'TILEX': '16',
+            'TILEY': '16',
+            'TILEX': '32',
+            'TILEY': '32'
         }
 
     },

@@ -162,7 +162,7 @@ unsigned sable_compute_tiled(unsigned nb_iter)
 static int *in_stable_tile = NULL;
 static int *out_stable_tile = NULL;
 static cl_mem ocl_changes, ocl_in_stable_tile, ocl_out_stable_tile;
-#define TILE_N (SIZE/TILEX)
+#define TILE_N (SIZE / TILEX)
 
 ///// SYNCHRONIZED VERSION
 // Suggested command line:
@@ -242,19 +242,18 @@ void sable_refresh_img_ocl_sync()
 // ./run -k sable -o -v ocl_tiled
 void sable_init_ocl_tiled(void)
 {
-    TABLE               = calloc(DIM * DIM, sizeof(uint32_t));
-    in_stable_tile      = calloc(TILE_N * TILE_N, sizeof(int));
-    out_stable_tile     = calloc(TILE_N * TILE_N, sizeof(int));
+    TABLE = calloc(DIM * DIM, sizeof(uint32_t));
+    in_stable_tile = calloc(TILE_N * TILE_N, sizeof(int));
+    out_stable_tile = calloc(TILE_N * TILE_N, sizeof(int));
 
-    for (int i = 0 ; i < TILE_N * TILE_N ; i++){
-		in_stable_tile[i]  = 0;
-		out_stable_tile[i] = 1;
+    for (int i = 0; i < TILE_N * TILE_N; i++) {
+        out_stable_tile[i] = 1;
     }
 
     ocl_changes = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int), NULL, NULL);
     if (!ocl_changes)
         exit_with_error("Failed to allocate ocl changes variable");
-    
+
     ocl_in_stable_tile = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int) * TILE_N * TILE_N, NULL, NULL);
     if (!ocl_in_stable_tile)
         exit_with_error("Failed to allocate stable tile buffer");
@@ -265,14 +264,14 @@ void sable_init_ocl_tiled(void)
 
     check(
         clEnqueueWriteBuffer(queue, ocl_in_stable_tile, CL_TRUE, 0,
-                                sizeof(int) * TILE_N * TILE_N, 
-                                in_stable_tile, 0, NULL, NULL),
+                             sizeof(int) * TILE_N * TILE_N,
+                             in_stable_tile, 0, NULL, NULL),
         "Failed to write to ocl_stable_change");
-    
+
     check(
         clEnqueueWriteBuffer(queue, ocl_out_stable_tile, CL_TRUE, 0,
-                                sizeof(int) * TILE_N * TILE_N, 
-                                out_stable_tile, 0, NULL, NULL),
+                             sizeof(int) * TILE_N * TILE_N,
+                             out_stable_tile, 0, NULL, NULL),
         "Failed to write to ocl_stable_change");
 }
 
@@ -283,15 +282,15 @@ unsigned sable_invoke_ocl_tiled(unsigned nb_iter)
     cl_int err;
 
     int current_changes;
-    
+
     for (unsigned it = 1; it <= nb_iter; it++)
     {
         current_changes = 0;
         check(
             clEnqueueWriteBuffer(queue, ocl_changes, CL_TRUE, 0,
-                                 sizeof(int), &current_changes, 0, NULL, NULL),
+                                sizeof(int), &current_changes, 0, NULL, NULL),
             "Failed to write to ocl_changes");
-        
+
         // Set kernel arguments
         //
         err = 0;
@@ -303,7 +302,7 @@ unsigned sable_invoke_ocl_tiled(unsigned nb_iter)
         check(err, "Failed to set kernel arguments");
 
         err = clEnqueueNDRangeKernel(queue, compute_kernel, 2, NULL, global, local,
-                                    0, NULL, NULL);
+                                     0, NULL, NULL);
         check(err, "Failed to execute kernel");
 
         // Swap buffers
@@ -312,9 +311,9 @@ unsigned sable_invoke_ocl_tiled(unsigned nb_iter)
             cur_buffer = next_buffer;
             next_buffer = tmp;
 
-            tmp     = ocl_in_stable_tile;
-            ocl_in_stable_tile    = ocl_out_stable_tile;
-            ocl_out_stable_tile   = tmp;
+            tmp = ocl_in_stable_tile;
+            ocl_in_stable_tile = ocl_out_stable_tile;
+            ocl_out_stable_tile = tmp;
         }
 
         check(
@@ -335,7 +334,117 @@ void sable_refresh_img_ocl_tiled()
 {
     cl_int err;
     err = clEnqueueReadBuffer(queue, cur_buffer, CL_TRUE, 0,
-                            sizeof(uint32_t) * DIM * DIM, TABLE, 0, NULL, NULL);
+                              sizeof(uint32_t) * DIM * DIM, TABLE, 0, NULL, NULL);
+    check(err, "Failed to read buffer from GPU");
+
+    sable_refresh_img();
+}
+
+///// TILED MINOR CHECK VERSION
+// Suggested command line:
+// ./run -k sable -o -v ocl_tiled_freq
+void sable_init_ocl_tiled_freq(void)
+{
+    TABLE = calloc(DIM * DIM, sizeof(uint32_t));
+    in_stable_tile = calloc(TILE_N * TILE_N, sizeof(int));
+    out_stable_tile = calloc(TILE_N * TILE_N, sizeof(int));
+
+    for (int i = 0; i < TILE_N * TILE_N; i++) {
+        out_stable_tile[i] = 1;
+    }
+
+    ocl_changes = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int), NULL, NULL);
+    if (!ocl_changes)
+        exit_with_error("Failed to allocate ocl changes variable");
+
+    ocl_in_stable_tile = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int) * TILE_N * TILE_N, NULL, NULL);
+    if (!ocl_in_stable_tile)
+        exit_with_error("Failed to allocate stable tile buffer");
+
+    ocl_out_stable_tile = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int) * TILE_N * TILE_N, NULL, NULL);
+    if (!ocl_out_stable_tile)
+        exit_with_error("Failed to allocate instable tile buffer");
+
+    check(
+        clEnqueueWriteBuffer(queue, ocl_in_stable_tile, CL_TRUE, 0,
+                             sizeof(int) * TILE_N * TILE_N,
+                             in_stable_tile, 0, NULL, NULL),
+        "Failed to write to ocl_stable_change");
+
+    check(
+        clEnqueueWriteBuffer(queue, ocl_out_stable_tile, CL_TRUE, 0,
+                             sizeof(int) * TILE_N * TILE_N,
+                             out_stable_tile, 0, NULL, NULL),
+        "Failed to write to ocl_stable_change");
+}
+
+unsigned sable_invoke_ocl_tiled_freq(unsigned nb_iter)
+{
+    size_t global[2] = {SIZE, SIZE};  // global domain size for our calculation
+    size_t local[2] = {TILEX, TILEY}; // local domain size for our calculation
+    cl_int err;
+
+    int current_changes;
+    // on check les changements toutes les X itérations
+    // minimisation du cout lecture/ecriture
+    int frequence_changes_checking = 50;
+
+    for (unsigned it = 1; it <= nb_iter; it++)
+    {
+        current_changes = 0;
+        if (frequence_changes_checking % it == 0) {
+            check(
+                clEnqueueWriteBuffer(queue, ocl_changes, CL_TRUE, 0,
+                                    sizeof(int), &current_changes, 0, NULL, NULL),
+                "Failed to write to ocl_changes");
+        }
+
+        // Set kernel arguments
+        //
+        err = 0;
+        err |= clSetKernelArg(compute_kernel, 0, sizeof(cl_mem), &cur_buffer);
+        err |= clSetKernelArg(compute_kernel, 1, sizeof(cl_mem), &next_buffer);
+        err |= clSetKernelArg(compute_kernel, 2, sizeof(cl_mem), &ocl_in_stable_tile);
+        err |= clSetKernelArg(compute_kernel, 3, sizeof(cl_mem), &ocl_out_stable_tile);
+        err |= clSetKernelArg(compute_kernel, 4, sizeof(cl_mem), &ocl_changes);
+        check(err, "Failed to set kernel arguments");
+
+        err = clEnqueueNDRangeKernel(queue, compute_kernel, 2, NULL, global, local,
+                                     0, NULL, NULL);
+        check(err, "Failed to execute kernel");
+
+        // Swap buffers
+        {
+            cl_mem tmp = cur_buffer;
+            cur_buffer = next_buffer;
+            next_buffer = tmp;
+
+            tmp = ocl_in_stable_tile;
+            ocl_in_stable_tile = ocl_out_stable_tile;
+            ocl_out_stable_tile = tmp;
+        }
+
+        if (frequence_changes_checking % it == 0) {
+            check(
+                clEnqueueReadBuffer(queue, ocl_changes, CL_TRUE, 0,
+                                    sizeof(int), &current_changes, 0, NULL, NULL),
+                "Failed to read in current_changes");
+
+            if (current_changes == 0)
+            {
+                return it;
+            }
+        }
+    }
+
+    return 0;
+}
+
+void sable_refresh_img_ocl_tiled_freq()
+{
+    cl_int err;
+    err = clEnqueueReadBuffer(queue, cur_buffer, CL_TRUE, 0,
+                              sizeof(uint32_t) * DIM * DIM, TABLE, 0, NULL, NULL);
     check(err, "Failed to read buffer from GPU");
 
     sable_refresh_img();
