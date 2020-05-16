@@ -204,18 +204,18 @@ unsigned sable_invoke_ocl_sync(unsigned nb_iter)
                                      0, NULL, NULL);
         check(err, "Failed to execute kernel");
 
-        // On regarde si il y a eu des changements
-        check(
-            clEnqueueReadBuffer(queue, ocl_changes, CL_TRUE, 0,
-                                sizeof(int), &current_changes, 0, NULL, NULL),
-            "Failed to read in current_changes");
-
         // Swap buffers
         {
             cl_mem tmp = cur_buffer;
             cur_buffer = next_buffer;
             next_buffer = tmp;
         }
+
+        // On regarde si il y a eu des changements
+        check(
+            clEnqueueReadBuffer(queue, ocl_changes, CL_TRUE, 0,
+                                sizeof(int), &current_changes, 0, NULL, NULL),
+            "Failed to read in current_changes");
 
         if (current_changes == 0)
         {
@@ -259,8 +259,8 @@ unsigned sable_invoke_ocl_sync_freq(unsigned nb_iter)
 
     for (unsigned it = 1; it <= nb_iter; it++)
     {
-        // on écrit 0 dans la détection des changements
         if (frequence_check_changes % it == 0) {
+            // on écrit 0 dans la détection des changements
             current_changes = 0;
             check(
                 clEnqueueWriteBuffer(queue, ocl_changes, CL_TRUE, 0,
