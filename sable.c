@@ -167,7 +167,6 @@ static cl_mem ocl_changes, ocl_in_stable_tile, ocl_out_stable_tile;
 ///// SYNCHRONIZED VERSION
 // Suggested command line:
 // ./run -k sable -o -v ocl_sync
-
 void sable_init_ocl_sync(void)
 {
     TABLE = calloc(DIM * DIM, sizeof(uint32_t));
@@ -228,6 +227,83 @@ unsigned sable_invoke_ocl_sync(unsigned nb_iter)
 }
 
 void sable_refresh_img_ocl_sync()
+{
+    cl_int err;
+    err = clEnqueueReadBuffer(queue, cur_buffer, CL_TRUE, 0,
+                              sizeof(uint32_t) * DIM * DIM, TABLE, 0, NULL, NULL);
+    check(err, "Failed to read buffer from GPU");
+
+    sable_refresh_img();
+}
+
+///// SYNCHRONIZED FREQ VERSION
+// Suggested command line:
+// ./run -k sable -o -v ocl_sync_freq
+void sable_init_ocl_sync_freq(void)
+{
+    TABLE = calloc(DIM * DIM, sizeof(uint32_t));
+
+    ocl_changes = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int), NULL, NULL);
+    if (!ocl_changes)
+        exit_with_error("Failed to allocate ocl changes variable");
+}
+
+unsigned sable_invoke_ocl_sync_freq(unsigned nb_iter)
+{
+    size_t global[2] = {SIZE, SIZE};  // global domain size for our calculation
+    size_t local[2] = {TILEX, TILEY}; // local domain size for our calculation
+    cl_int err;
+
+    int current_changes;
+    int frequence_check_changes = 50;
+
+    for (unsigned it = 1; it <= nb_iter; it++)
+    {
+        // on écrit 0 dans la détection des changements
+        if (frequence_check_changes % it == 0) {
+            current_changes = 0;
+            check(
+                clEnqueueWriteBuffer(queue, ocl_changes, CL_TRUE, 0,
+                                    sizeof(int), &current_changes, 0, NULL, NULL),
+                "Failed to write to ocl_changes");
+        }
+        // Set kernel arguments
+        //
+        err = 0;
+        err |= clSetKernelArg(compute_kernel, 0, sizeof(cl_mem), &cur_buffer);
+        err |= clSetKernelArg(compute_kernel, 1, sizeof(cl_mem), &next_buffer);
+        err |= clSetKernelArg(compute_kernel, 2, sizeof(cl_mem), &ocl_changes);
+        check(err, "Failed to set kernel arguments");
+
+        err = clEnqueueNDRangeKernel(queue, compute_kernel, 2, NULL, global, local,
+                                     0, NULL, NULL);
+        check(err, "Failed to execute kernel");
+
+
+        // Swap buffers
+        {
+            cl_mem tmp = cur_buffer;
+            cur_buffer = next_buffer;
+            next_buffer = tmp;
+        }
+
+        if (frequence_check_changes % it == 0) {
+            // On regarde si il y a eu des changements
+            check(
+                clEnqueueReadBuffer(queue, ocl_changes, CL_TRUE, 0,
+                                    sizeof(int), &current_changes, 0, NULL, NULL),
+                "Failed to read in current_changes");
+            if (current_changes == 0)
+            {
+                return it;
+            }
+        }
+    }
+
+    return 0;
+}
+
+void sable_refresh_img_ocl_sync_freq()
 {
     cl_int err;
     err = clEnqueueReadBuffer(queue, cur_buffer, CL_TRUE, 0,
@@ -340,7 +416,7 @@ void sable_refresh_img_ocl_tiled()
     sable_refresh_img();
 }
 
-///// TILED MINOR CHECK VERSION
+///// TILED FREQ CHECK VERSION
 // Suggested command line:
 // ./run -k sable -o -v ocl_tiled_freq
 void sable_init_ocl_tiled_freq(void)
@@ -391,8 +467,8 @@ unsigned sable_invoke_ocl_tiled_freq(unsigned nb_iter)
 
     for (unsigned it = 1; it <= nb_iter; it++)
     {
-        current_changes = 0;
         if (frequence_changes_checking % it == 0) {
+            current_changes = 0;
             check(
                 clEnqueueWriteBuffer(queue, ocl_changes, CL_TRUE, 0,
                                     sizeof(int), &current_changes, 0, NULL, NULL),
