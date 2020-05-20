@@ -255,11 +255,12 @@ unsigned sable_invoke_ocl_sync_freq(unsigned nb_iter)
     cl_int err;
 
     int current_changes;
-    int frequence_check_changes = 50;
+    int frequence_check_changes = 1000;
+    static int ite_num = 0;
 
-    for (unsigned it = 1; it <= nb_iter; it++)
+    for (unsigned it = 1; it <= nb_iter; it++, ite_num++)
     {
-        if (frequence_check_changes % it == 0) {
+        if (frequence_check_changes - ite_num == 0) {
             // on écrit 0 dans la détection des changements
             current_changes = 0;
             check(
@@ -287,7 +288,7 @@ unsigned sable_invoke_ocl_sync_freq(unsigned nb_iter)
             next_buffer = tmp;
         }
 
-        if (frequence_check_changes % it == 0) {
+        if (frequence_check_changes - ite_num == 0) {
             // On regarde si il y a eu des changements
             check(
                 clEnqueueReadBuffer(queue, ocl_changes, CL_TRUE, 0,
@@ -297,6 +298,7 @@ unsigned sable_invoke_ocl_sync_freq(unsigned nb_iter)
             {
                 return it;
             }
+            ite_num = 1;
         }
     }
 
@@ -463,11 +465,12 @@ unsigned sable_invoke_ocl_tiled_freq(unsigned nb_iter)
     int current_changes;
     // on check les changements toutes les X itérations
     // minimisation du cout lecture/ecriture
-    int frequence_changes_checking = 50;
+    int frequence_changes_checking = 1000;
+    static int ite_num = 0;
 
-    for (unsigned it = 1; it <= nb_iter; it++)
+    for (unsigned it = 1; it <= nb_iter; it++, ite_num++)
     {
-        if (frequence_changes_checking % it == 0) {
+        if (frequence_changes_checking - ite_num == 0) {
             current_changes = 0;
             check(
                 clEnqueueWriteBuffer(queue, ocl_changes, CL_TRUE, 0,
@@ -500,7 +503,7 @@ unsigned sable_invoke_ocl_tiled_freq(unsigned nb_iter)
             ocl_out_stable_tile = tmp;
         }
 
-        if (frequence_changes_checking % it == 0) {
+        if (frequence_changes_checking - ite_num == 0) {
             check(
                 clEnqueueReadBuffer(queue, ocl_changes, CL_TRUE, 0,
                                     sizeof(int), &current_changes, 0, NULL, NULL),
@@ -510,6 +513,7 @@ unsigned sable_invoke_ocl_tiled_freq(unsigned nb_iter)
             {
                 return it;
             }
+            ite_num = 1;
         }
     }
 
